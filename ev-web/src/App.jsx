@@ -9,6 +9,14 @@ import Dashboard from "./pages/Dashboard";
 import RequireRole from "./auth/RequireRole";
 import { Toaster } from "react-hot-toast";
 
+import Owners from "./pages/Owners";
+import OwnerForm from "./pages/OwnerForm";
+import Stations from "./pages/Stations";
+import StationForm from "./pages/StationForm";
+import Bookings from "./pages/Bookings";
+import BookingForm from "./pages/BookingForm";
+import BookingQR from "./pages/BookingQR";
+
 export default function App() {
   return (
     <BrowserRouter>
@@ -20,7 +28,18 @@ export default function App() {
           </RequireRole>
         }>
           <Route index element={<Dashboard />} />
-          {/* Add Owners, Stations, Bookings routes here */}
+          <Route path="owners" element={<RequireRole roles={['Backoffice']}><Owners /></RequireRole>} />
+          <Route path="owners/new" element={<RequireRole roles={['Backoffice']}><OwnerForm /></RequireRole>} />
+          <Route path="owners/:nic" element={<RequireRole roles={['Backoffice']}><OwnerForm /></RequireRole>} />
+
+          <Route path="stations" element={<Stations />} />
+          <Route path="stations/new" element={<RequireRole roles={['Backoffice']}><StationForm /></RequireRole>} />
+          <Route path="stations/:id" element={<RequireRole roles={['Backoffice']}><StationForm /></RequireRole>} />
+
+          <Route path="bookings" element={<Bookings />} />
+          <Route path="bookings/new" element={<BookingForm />} />
+          <Route path="bookings/:id" element={<BookingForm />} />
+          <Route path="bookings/:id/qr" element={<BookingQR />} />
         </Route>
       </Routes>
       <Toaster />
