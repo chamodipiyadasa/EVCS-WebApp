@@ -5,6 +5,7 @@ import Users from "./pages/Users";
 import Owners from "./pages/Owners";
 import Stations from "./pages/Stations";
 import Bookings from "./pages/Bookings";
+import AdminLayout from "./components/AdminLayout";
 
 function App() {
   const role = localStorage.getItem("role");
@@ -15,15 +16,35 @@ function App() {
     <div>
       <Routes>
         <Route path="/" element={<Login />} />
-        <Route path="/dashboard" element={<Dashboard />} />
+        <Route path="/dashboard" element={
+          <AdminLayout>
+            <Dashboard />
+          </AdminLayout>
+        } />
         {role === "backoffice" && (
           <>
-            <Route path="/users" element={<Users />} />
-            <Route path="/owners" element={<Owners />} />
-            <Route path="/stations" element={<Stations />} />
-            <Route path="/bookings" element={<Bookings />} />
+            <Route path="/users" element={
+              <AdminLayout>
+                <Users />
+              </AdminLayout>
+            } />
+            <Route path="/owners" element={
+              <AdminLayout>
+                <Owners />
+              </AdminLayout>
+            } />
           </>
         )}
+        <Route path="/stations" element={
+          <AdminLayout>
+            <Stations />
+          </AdminLayout>
+        } />
+        <Route path="/bookings" element={
+          <AdminLayout>
+            <Bookings />
+          </AdminLayout>
+        } />
         <Route path="*" element={<Navigate to="/" />} />
       </Routes>
     </div>
