@@ -1,3 +1,4 @@
+// src/components/AppLayout.jsx
 import { Link, Outlet, useLocation } from 'react-router-dom'
 import { useAuth } from '../auth/useAuth'
 
@@ -9,11 +10,11 @@ export default function AppLayout(){
     <div className="min-h-screen flex bg-slate-50">
       <aside className="w-64 bg-slate-900 p-4 space-y-2">
         <div className="text-xl font-bold text-white mb-4">EVCS Admin</div>
-        <Link to="/" className={`block px-3 py-2 rounded ${active('/')}`}>Dashboard</Link>
-        {role==='Backoffice' && <Link to="/users" className={`block px-3 py-2 rounded ${active('/users')}`}>Users</Link>}
-        {role==='Backoffice' && <Link to="/owners" className={`block px-3 py-2 rounded ${active('/owners')}`}>EV Owners</Link>}
-        <Link to="/stations" className={`block px-3 py-2 rounded ${active('/stations')}`}>Stations</Link>
-        <Link to="/bookings" className={`block px-3 py-2 rounded ${active('/bookings')}`}>Bookings</Link>
+        <Link to="/app" className={`block px-3 py-2 rounded ${active('/app')}`}>Dashboard</Link>
+        {role==='Backoffice' && <Link to="/app/users" className={`block px-3 py-2 rounded ${active('/app/users')}`}>Users</Link>}
+        {role==='Backoffice' && <Link to="/app/owners" className={`block px-3 py-2 rounded ${active('/app/owners')}`}>EV Owners</Link>}
+        <Link to="/app/stations" className={`block px-3 py-2 rounded ${active('/app/stations')}`}>Stations</Link>
+        <Link to="/app/bookings" className={`block px-3 py-2 rounded ${active('/app/bookings')}`}>Bookings</Link>
         <div className="pt-4 border-t border-slate-700"></div>
         <div className="text-xs text-slate-400">Signed in as <b>{role}</b></div>
         <div className="text-xs text-slate-400 break-words">{user?.username}</div>
