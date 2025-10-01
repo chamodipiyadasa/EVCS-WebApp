@@ -1,5 +1,8 @@
+// src/App.jsx
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import AppLayout from './components/AppLayout'
+import Home from './pages/Home'
+import Signup from './pages/Signup'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import Owners from './pages/Owners'
@@ -17,45 +20,81 @@ export default function App() {
   return (
     <BrowserRouter>
       <Routes>
+        {/* Public site */}
+        <Route path="/" element={<Home/>} />
+        <Route path="/signup" element={<Signup/>} />
         <Route path="/login" element={<Login/>} />
-        <Route path="/" element={
-          <RequireRole roles={['Backoffice','Operator']}>
-            <AppLayout/>
-          </RequireRole>
-        }>
-          <Route index element={<Dashboard/>} />
 
-          <Route path="users" element={
-            <RequireRole roles={['Backoffice']}><Users/></RequireRole>
-          }/>
+        {/* Protected admin app */}
+        <Route
+          path="/app"
+          element={
+            <RequireRole roles={['Backoffice','Operator']}>
+              <AppLayout />
+            </RequireRole>
+          }
+        >
+          <Route index element={<Dashboard />} />
 
-          <Route path="owners" element={
-            <RequireRole roles={['Backoffice']}><Owners/></RequireRole>
-          }/>
-          <Route path="owners/new" element={
-            <RequireRole roles={['Backoffice']}><OwnerForm/></RequireRole>
-          }/>
-          <Route path="owners/:nic" element={
-            <RequireRole roles={['Backoffice']}><OwnerForm/></RequireRole>
-          }/>
+          <Route
+            path="users"
+            element={
+              <RequireRole roles={['Backoffice']}>
+                <Users />
+              </RequireRole>
+            }
+          />
 
-          <Route path="stations" element={<Stations/>} />
-          <Route path="stations/new" element={
-            <RequireRole roles={['Backoffice']}><StationForm/></RequireRole>
-          }/>
-          <Route path="stations/:id" element={
-            <RequireRole roles={['Backoffice']}><StationForm/></RequireRole>
-          }/>
+          <Route
+            path="owners"
+            element={
+              <RequireRole roles={['Backoffice']}>
+                <Owners />
+              </RequireRole>
+            }
+          />
+          <Route
+            path="owners/new"
+            element={
+              <RequireRole roles={['Backoffice']}>
+                <OwnerForm />
+              </RequireRole>
+            }
+          />
+          <Route
+            path="owners/:nic"
+            element={
+              <RequireRole roles={['Backoffice']}>
+                <OwnerForm />
+              </RequireRole>
+            }
+          />
 
-          <Route path="bookings" element={<Bookings/>} />
-          <Route path="bookings/new" element={<BookingForm/>} />
-          <Route path="bookings/:id" element={<BookingForm/>} />
-          <Route path="bookings/:id/qr" element={<BookingQR/>} />
+          <Route path="stations" element={<Stations />} />
+          <Route
+            path="stations/new"
+            element={
+              <RequireRole roles={['Backoffice']}>
+                <StationForm />
+              </RequireRole>
+            }
+          />
+          <Route
+            path="stations/:id"
+            element={
+              <RequireRole roles={['Backoffice']}>
+                <StationForm />
+              </RequireRole>
+            }
+          />
+
+          <Route path="bookings" element={<Bookings />} />
+          <Route path="bookings/new" element={<BookingForm />} />
+          <Route path="bookings/:id" element={<BookingForm />} />
+          <Route path="bookings/:id/qr" element={<BookingQR />} />
         </Route>
       </Routes>
       <Toaster/>
     </BrowserRouter>
   )
-
 }
-
