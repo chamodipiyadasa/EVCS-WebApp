@@ -1,5 +1,3 @@
-// src/App.jsx
-import React from 'react';
 import { useState } from 'react'
 import './App.css'
 import { BrowserRouter, Routes, Route } from "react-router-dom";
@@ -19,30 +17,81 @@ import BookingQR from "./pages/BookingQR";
 
 export default function App() {
   return (
+    <div className="flex h-screen flex-col items-center justify-center bg-gray-100 text-center">
+      <h1 className="text-5xl font-bold text-blue-600 mb-6">
+        ⚡ Vite + React + Tailwind
+      </h1>
+
+      <p className="text-lg text-gray-700 mb-4">
+        Edit <code className="bg-gray-200 px-2 py-1 rounded">src/App.jsx</code> and save to test HMR
+      </p>
+
+      <button
+        className="px-6 py-3 bg-blue-500 text-white rounded-lg shadow hover:bg-blue-600 transition"
+        onClick={() => alert("🚀 Tailwind is working!")}
+      >
+        Click Me
+      </button>
+    </div>
+  );
+import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import AppLayout from './components/AppLayout'
+import Login from './pages/Login'
+import Dashboard from './pages/Dashboard'
+import Owners from './pages/Owners'
+import OwnerForm from './pages/OwnerForm'
+import Stations from './pages/Stations'
+import StationForm from './pages/StationForm'
+import Bookings from './pages/Bookings'
+import BookingForm from './pages/BookingForm'
+import BookingQR from './pages/BookingQR'
+import Users from './pages/Users'
+import RequireRole from './auth/RequireRole'
+import { Toaster } from 'react-hot-toast'
+
+export default function App() {
+  return (
     <BrowserRouter>
       <Routes>
-        <Route path="/login" element={<Login />} />
+        <Route path="/login" element={<Login/>} />
         <Route path="/" element={
-          <RequireRole roles={["Backoffice","Operator"]}>
-            <AppLayout />
+          <RequireRole roles={['Backoffice','Operator']}>
+            <AppLayout/>
           </RequireRole>
         }>
-          <Route index element={<Dashboard />} />
-          <Route path="owners" element={<RequireRole roles={['Backoffice']}><Owners /></RequireRole>} />
-          <Route path="owners/new" element={<RequireRole roles={['Backoffice']}><OwnerForm /></RequireRole>} />
-          <Route path="owners/:nic" element={<RequireRole roles={['Backoffice']}><OwnerForm /></RequireRole>} />
+          <Route index element={<Dashboard/>} />
 
-          <Route path="stations" element={<Stations />} />
-          <Route path="stations/new" element={<RequireRole roles={['Backoffice']}><StationForm /></RequireRole>} />
-          <Route path="stations/:id" element={<RequireRole roles={['Backoffice']}><StationForm /></RequireRole>} />
+          <Route path="users" element={
+            <RequireRole roles={['Backoffice']}><Users/></RequireRole>
+          }/>
 
-          <Route path="bookings" element={<Bookings />} />
-          <Route path="bookings/new" element={<BookingForm />} />
-          <Route path="bookings/:id" element={<BookingForm />} />
-          <Route path="bookings/:id/qr" element={<BookingQR />} />
+          <Route path="owners" element={
+            <RequireRole roles={['Backoffice']}><Owners/></RequireRole>
+          }/>
+          <Route path="owners/new" element={
+            <RequireRole roles={['Backoffice']}><OwnerForm/></RequireRole>
+          }/>
+          <Route path="owners/:nic" element={
+            <RequireRole roles={['Backoffice']}><OwnerForm/></RequireRole>
+          }/>
+
+          <Route path="stations" element={<Stations/>} />
+          <Route path="stations/new" element={
+            <RequireRole roles={['Backoffice']}><StationForm/></RequireRole>
+          }/>
+          <Route path="stations/:id" element={
+            <RequireRole roles={['Backoffice']}><StationForm/></RequireRole>
+          }/>
+
+          <Route path="bookings" element={<Bookings/>} />
+          <Route path="bookings/new" element={<BookingForm/>} />
+          <Route path="bookings/:id" element={<BookingForm/>} />
+          <Route path="bookings/:id/qr" element={<BookingQR/>} />
         </Route>
       </Routes>
-      <Toaster />
+      <Toaster/>
     </BrowserRouter>
-  );
+  )
+
 }
+
