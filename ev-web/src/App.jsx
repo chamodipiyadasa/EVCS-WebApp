@@ -50,34 +50,34 @@ function App() {
         
         {/* Back Office Routes */}
         {role === "backoffice" && (
-          <>
-            <Route path="/dashboard" element={
-              <AdminLayout>
-                <Dashboard />
-              </AdminLayout>
-            } />
-            <Route path="/users" element={
-              <AdminLayout>
-                <Users />
-              </AdminLayout>
-            } />
-            <Route path="/owners" element={
-              <AdminLayout>
-                <Owners />
-              </AdminLayout>
-            } />
-            <Route path="/stations" element={
-              <AdminLayout>
-                <Stations />
-              </AdminLayout>
-            } />
-            <Route path="/bookings" element={
-              <AdminLayout>
-                <Bookings />
-              </AdminLayout>
-            } />
-          </>
-        )}
+            <>
+              <Route path="/dashboard" element={
+                <AdminLayout>
+                  <Dashboard />
+                </AdminLayout>
+              } />
+              <Route path="/users" element={
+                <AdminLayout>
+                  <Users />
+                </AdminLayout>
+              } />
+              <Route path="/owners" element={
+                <AdminLayout>
+                  <Owners />
+                </AdminLayout>
+              } />
+              <Route path="/stations" element={
+                <AdminLayout>
+                  <Stations />
+                </AdminLayout>
+              } />
+              <Route path="/bookings" element={
+                <AdminLayout>
+                  <Bookings />
+                </AdminLayout>
+              } />
+            </>
+          )}
 
         {/* Station Operator Routes */}
         {role === "station-operator" && (
