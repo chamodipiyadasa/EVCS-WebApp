@@ -9,6 +9,10 @@ export default function AdminLayout({ children }) {
 
   const handleLogout = () => {
     localStorage.removeItem("role");
+    
+    // Dispatch storage event to notify App component
+    window.dispatchEvent(new Event('storage'));
+    
     navigate("/");
   };
 
