@@ -1,4 +1,18 @@
 import { useState } from "react";
+import ValidatedInput from "../components/ValidatedInput";
+import { 
+  validateNIC, 
+  validateEmail, 
+  validatePhoneNumber, 
+  validateName, 
+  validateVehicleModel, 
+  validateLicensePlate, 
+  validateDuration, 
+  validateSlotNumber, 
+  validateBookingDate,
+  formatPhoneNumber,
+  formatLicensePlate
+} from "../utils/validation";
 
 export default function Bookings() {
   // Local booking state
@@ -111,6 +125,11 @@ export default function Bookings() {
   const [statusFilter, setStatusFilter] = useState("All");
   const [dateFilter, setDateFilter] = useState("");
   const [stationFilter, setStationFilter] = useState("All");
+  
+  // Form validation state
+  const [formErrors, setFormErrors] = useState({});
+  const [isFormValid, setIsFormValid] = useState(false);
+  
   const [formData, setFormData] = useState({
     customerId: "",
     customerName: "",
@@ -137,22 +156,62 @@ export default function Bookings() {
     "14:00-16:00", "16:00-18:00", "18:00-20:00", "20:00-22:00"
   ];
 
-  const handleInputChange = (e) => {
-    setFormData({ ...formData, [e.target.name]: e.target.value });
+  // Updated form change handler with validation
+  const handleInputChange = (fieldName, value) => {
+    setFormData({ ...formData, [fieldName]: value });
+    
+    // Clear previous error for this field
+    if (formErrors[fieldName]) {
+      setFormErrors({ ...formErrors, [fieldName]: '' });
+    }
+  };
+
+  // Validate entire form
+  const validateForm = () => {
+    const errors = {};
+    
+    // Validate each field
+    const nicValidation = validateNIC(formData.customerId);
+    if (!nicValidation.isValid) errors.customerId = nicValidation.message;
+    
+    const nameValidation = validateName(formData.customerName, "Customer name");
+    if (!nameValidation.isValid) errors.customerName = nameValidation.message;
+    
+    const emailValidation = validateEmail(formData.customerEmail);
+    if (!emailValidation.isValid) errors.customerEmail = emailValidation.message;
+    
+    const phoneValidation = validatePhoneNumber(formData.customerPhone);
+    if (!phoneValidation.isValid) errors.customerPhone = phoneValidation.message;
+    
+    const vehicleValidation = validateVehicleModel(formData.vehicleModel);
+    if (!vehicleValidation.isValid) errors.vehicleModel = vehicleValidation.message;
+    
+    const plateValidation = validateLicensePlate(formData.licensePlate);
+    if (!plateValidation.isValid) errors.licensePlate = plateValidation.message;
+    
+    const durationValidation = validateDuration(formData.duration);
+    if (!durationValidation.isValid) errors.duration = durationValidation.message;
+    
+    const slotValidation = validateSlotNumber(formData.slotNumber, 8);
+    if (!slotValidation.isValid) errors.slotNumber = slotValidation.message;
+    
+    const dateValidation = validateBookingDate(formData.bookingDate);
+    if (!dateValidation.isValid) errors.bookingDate = dateValidation.message;
+    
+    // Required field validations
+    if (!formData.stationId) errors.stationId = "Station is required";
+    if (!formData.timeSlot) errors.timeSlot = "Time slot is required";
+    
+    setFormErrors(errors);
+    const isValid = Object.keys(errors).length === 0;
+    setIsFormValid(isValid);
+    return isValid;
   };
 
   const calculateCost = (stationId, duration) => {
     const station = stations.find(s => s.id === stationId);
     if (!station) return 0;
     return (station.pricePerKwh * duration * 30) + station.sessionFee; // Assuming 30kWh per hour
-  };
-
-  const validateBookingDate = (date) => {
-    const today = new Date();
-    const bookingDate = new Date(date);
-    const diffTime = bookingDate.getTime() - today.getTime();
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    return diffDays >= 0 && diffDays <= 7;
   };
 
   const canModifyBooking = (booking) => {
@@ -165,9 +224,9 @@ export default function Bookings() {
   const handleSubmit = (e) => {
     e.preventDefault();
     
-    // Validate booking date (7-day advance limit)
-    if (!validateBookingDate(formData.bookingDate)) {
-      alert("Bookings can only be made up to 7 days in advance!");
+    // Validate the entire form
+    if (!validateForm()) {
+      alert("Please fix the errors in the form before submitting.");
       return;
     }
 
@@ -241,6 +300,9 @@ export default function Bookings() {
 
   const openModal = (booking = null) => {
     setEditingBooking(booking);
+    setFormErrors({}); // Reset validation errors
+    setIsFormValid(false); // Reset form validity
+    
     if (booking) {
       setFormData({
         customerId: booking.customerId,
@@ -268,6 +330,8 @@ export default function Bookings() {
   const closeModal = () => {
     setShowModal(false);
     setEditingBooking(null);
+    setFormErrors({}); // Reset validation errors
+    setIsFormValid(false); // Reset form validity
   };
 
   const handleCancel = (bookingId) => {
@@ -489,89 +553,177 @@ export default function Bookings() {
               • Modifications/cancellations require 12-hour notice
             </p>
 
-            <form onSubmit={handleSubmit}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
-                <div>
-                  <label style={{ display: 'block', fontSize: '14px', fontWeight: '500', marginBottom: '4px', color: '#374151' }}>Customer NIC *</label>
-                  <input type="text" name="customerId" value={formData.customerId} onChange={handleInputChange} required style={{ width: '100%', padding: '8px', border: '1px solid #d1d5db', borderRadius: '4px', fontSize: '14px', boxSizing: 'border-box' }} />
-                </div>
-                <div>
-                  <label style={{ display: 'block', fontSize: '14px', fontWeight: '500', marginBottom: '4px', color: '#374151' }}>Customer Name *</label>
-                  <input type="text" name="customerName" value={formData.customerName} onChange={handleInputChange} required style={{ width: '100%', padding: '8px', border: '1px solid #d1d5db', borderRadius: '4px', fontSize: '14px', boxSizing: 'border-box' }} />
-                </div>
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <ValidatedInput
+                  label="Customer NIC"
+                  name="customerId"
+                  type="text"
+                  value={formData.customerId}
+                  onChange={handleInputChange}
+                  validator={validateNIC}
+                  required={true}
+                  placeholder="123456789V or 200012345678"
+                  showFormatHint={true}
+                />
+                
+                <ValidatedInput
+                  label="Customer Name"
+                  name="customerName"
+                  type="text"
+                  value={formData.customerName}
+                  onChange={handleInputChange}
+                  validator={(value) => validateName(value, "Customer name")}
+                  required={true}
+                  placeholder="Enter full name"
+                />
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
-                <div>
-                  <label style={{ display: 'block', fontSize: '14px', fontWeight: '500', marginBottom: '4px', color: '#374151' }}>Email *</label>
-                  <input type="email" name="customerEmail" value={formData.customerEmail} onChange={handleInputChange} required style={{ width: '100%', padding: '8px', border: '1px solid #d1d5db', borderRadius: '4px', fontSize: '14px', boxSizing: 'border-box' }} />
-                </div>
-                <div>
-                  <label style={{ display: 'block', fontSize: '14px', fontWeight: '500', marginBottom: '4px', color: '#374151' }}>Phone *</label>
-                  <input type="tel" name="customerPhone" value={formData.customerPhone} onChange={handleInputChange} required style={{ width: '100%', padding: '8px', border: '1px solid #d1d5db', borderRadius: '4px', fontSize: '14px', boxSizing: 'border-box' }} />
-                </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <ValidatedInput
+                  label="Email"
+                  name="customerEmail"
+                  type="email"
+                  value={formData.customerEmail}
+                  onChange={handleInputChange}
+                  validator={validateEmail}
+                  required={true}
+                  placeholder="customer@example.com"
+                />
+                
+                <ValidatedInput
+                  label="Phone Number"
+                  name="customerPhone"
+                  type="tel"
+                  value={formData.customerPhone}
+                  onChange={handleInputChange}
+                  validator={validatePhoneNumber}
+                  required={true}
+                  placeholder="+94771234567"
+                  showFormatHint={true}
+                  formatFunction={formatPhoneNumber}
+                />
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
-                <div>
-                  <label style={{ display: 'block', fontSize: '14px', fontWeight: '500', marginBottom: '4px', color: '#374151' }}>Vehicle Model *</label>
-                  <input type="text" name="vehicleModel" value={formData.vehicleModel} onChange={handleInputChange} required style={{ width: '100%', padding: '8px', border: '1px solid #d1d5db', borderRadius: '4px', fontSize: '14px', boxSizing: 'border-box' }} />
-                </div>
-                <div>
-                  <label style={{ display: 'block', fontSize: '14px', fontWeight: '500', marginBottom: '4px', color: '#374151' }}>License Plate *</label>
-                  <input type="text" name="licensePlate" value={formData.licensePlate} onChange={handleInputChange} required style={{ width: '100%', padding: '8px', border: '1px solid #d1d5db', borderRadius: '4px', fontSize: '14px', boxSizing: 'border-box' }} />
-                </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <ValidatedInput
+                  label="Vehicle Model"
+                  name="vehicleModel"
+                  type="text"
+                  value={formData.vehicleModel}
+                  onChange={handleInputChange}
+                  validator={validateVehicleModel}
+                  required={true}
+                  placeholder="Tesla Model 3"
+                />
+                
+                <ValidatedInput
+                  label="License Plate"
+                  name="licensePlate"
+                  type="text"
+                  value={formData.licensePlate}
+                  onChange={handleInputChange}
+                  validator={validateLicensePlate}
+                  required={true}
+                  placeholder="ABC-1234"
+                  showFormatHint={true}
+                  formatFunction={formatLicensePlate}
+                />
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: '12px', marginBottom: '12px' }}>
-                <div>
-                  <label style={{ display: 'block', fontSize: '14px', fontWeight: '500', marginBottom: '4px', color: '#374151' }}>Station *</label>
-                  <select name="stationId" value={formData.stationId} onChange={handleInputChange} required style={{ width: '100%', padding: '8px', border: '1px solid #d1d5db', borderRadius: '4px', fontSize: '14px', boxSizing: 'border-box' }}>
-                    <option value="">Select Station</option>
-                    {stations.map(station => (
-                      <option key={station.id} value={station.id}>{station.name}</option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label style={{ display: 'block', fontSize: '14px', fontWeight: '500', marginBottom: '4px', color: '#374151' }}>Slot Number *</label>
-                  <input type="number" name="slotNumber" value={formData.slotNumber} onChange={handleInputChange} required min="1" max="8" style={{ width: '100%', padding: '8px', border: '1px solid #d1d5db', borderRadius: '4px', fontSize: '14px', boxSizing: 'border-box' }} />
-                </div>
-                <div>
-                  <label style={{ display: 'block', fontSize: '14px', fontWeight: '500', marginBottom: '4px', color: '#374151' }}>Duration (hrs) *</label>
-                  <input type="number" name="duration" value={formData.duration} onChange={handleInputChange} required min="0.5" max="8" step="0.5" style={{ width: '100%', padding: '8px', border: '1px solid #d1d5db', borderRadius: '4px', fontSize: '14px', boxSizing: 'border-box' }} />
-                </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <ValidatedInput
+                  label="Station"
+                  name="stationId"
+                  type="select"
+                  value={formData.stationId}
+                  onChange={handleInputChange}
+                  validator={(value) => value ? { isValid: true, message: '' } : { isValid: false, message: 'Station is required' }}
+                  required={true}
+                  options={stations.map(station => ({ value: station.id, label: station.name }))}
+                  placeholder="Select station"
+                />
+                
+                <ValidatedInput
+                  label="Slot Number"
+                  name="slotNumber"
+                  type="number"
+                  value={formData.slotNumber}
+                  onChange={handleInputChange}
+                  validator={(value) => validateSlotNumber(value, 8)}
+                  required={true}
+                  min="1"
+                  max="8"
+                  placeholder="1"
+                />
+                
+                <ValidatedInput
+                  label="Duration (hours)"
+                  name="duration"
+                  type="number"
+                  value={formData.duration}
+                  onChange={handleInputChange}
+                  validator={validateDuration}
+                  required={true}
+                  min="0.5"
+                  max="8"
+                  step="0.5"
+                  placeholder="2.0"
+                  showFormatHint={true}
+                />
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '16px' }}>
-                <div>
-                  <label style={{ display: 'block', fontSize: '14px', fontWeight: '500', marginBottom: '4px', color: '#374151' }}>Booking Date *</label>
-                  <input type="date" name="bookingDate" value={formData.bookingDate} onChange={handleInputChange} required min={new Date().toISOString().split('T')[0]} max={new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]} style={{ width: '100%', padding: '8px', border: '1px solid #d1d5db', borderRadius: '4px', fontSize: '14px', boxSizing: 'border-box' }} />
-                </div>
-                <div>
-                  <label style={{ display: 'block', fontSize: '14px', fontWeight: '500', marginBottom: '4px', color: '#374151' }}>Time Slot *</label>
-                  <select name="timeSlot" value={formData.timeSlot} onChange={handleInputChange} required style={{ width: '100%', padding: '8px', border: '1px solid #d1d5db', borderRadius: '4px', fontSize: '14px', boxSizing: 'border-box' }}>
-                    <option value="">Select Time Slot</option>
-                    {timeSlots.map(slot => (
-                      <option key={slot} value={slot}>{slot}</option>
-                    ))}
-                  </select>
-                </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <ValidatedInput
+                  label="Booking Date"
+                  name="bookingDate"
+                  type="date"
+                  value={formData.bookingDate}
+                  onChange={handleInputChange}
+                  validator={validateBookingDate}
+                  required={true}
+                  min={new Date().toISOString().split('T')[0]}
+                  max={new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]}
+                />
+                
+                <ValidatedInput
+                  label="Time Slot"
+                  name="timeSlot"
+                  type="select"
+                  value={formData.timeSlot}
+                  onChange={handleInputChange}
+                  validator={(value) => value ? { isValid: true, message: '' } : { isValid: false, message: 'Time slot is required' }}
+                  required={true}
+                  options={timeSlots.map(slot => ({ value: slot, label: slot }))}
+                  placeholder="Select time slot"
+                />
               </div>
 
               {formData.stationId && formData.duration && (
-                <div style={{ padding: '12px', backgroundColor: '#f0f9ff', borderRadius: '6px', marginBottom: '16px' }}>
-                  <p style={{ margin: 0, fontSize: '14px', color: '#1e293b' }}>
+                <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                  <p className="text-sm font-medium text-blue-800">
                     <strong>Estimated Cost: Rs. {calculateCost(formData.stationId, parseFloat(formData.duration) || 0).toFixed(2)}</strong>
                   </p>
                 </div>
               )}
 
-              <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
-                <button type="button" onClick={closeModal} style={{ padding: '8px 16px', backgroundColor: '#6b7280', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '14px' }}>
+              <div className="flex justify-end space-x-3 pt-4">
+                <button 
+                  type="button" 
+                  onClick={closeModal}
+                  className="px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-colors"
+                >
                   Cancel
                 </button>
-                <button type="submit" style={{ padding: '8px 16px', backgroundColor: '#2563eb', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '14px' }}>
+                <button 
+                  type="submit"
+                  disabled={!isFormValid}
+                  className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                    isFormValid 
+                      ? 'bg-blue-600 text-white hover:bg-blue-700' 
+                      : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                  }`}
+                >
                   {editingBooking ? 'Update' : 'Create'} Booking
                 </button>
               </div>
