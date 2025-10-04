@@ -42,3 +42,10 @@ export async function deactivateStation(id){
   const s = await api.deactivateStation(id)
   return mapFromApi(s)
 }
+
+// Activate station by setting isActive=true using the update endpoint.
+export async function activateStation(id){
+  // reuse update endpoint to set isActive true
+  const s = await api.updateStation(id, { isActive: true })
+  return mapFromApi(s)
+}
