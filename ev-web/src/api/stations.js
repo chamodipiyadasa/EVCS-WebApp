@@ -14,16 +14,14 @@ export const listStations = () => {
 }
 
 export const getStation = (id) =>
-  api.get(`/stations/${id}`).then(r => r.data);
+  api.get(`/api/Stations/${id}`).then(r => r.data);
 
-// Create new station
 export const createStation = (dto) =>
-  api.post("/stations", dto).then(r => r.data);
+  api.post(`/api/Stations`, dto).then(r => r.data);
 
-// Update station
 export const updateStation = (id, dto) =>
-  api.put(`/stations/${id}`, dto).then(r => r.data);
+  api.put(`/api/Stations/${id}`, dto).then(r => r.data);
 
-// Deactivate station (backend enforces "no active bookings" rule)
+// Deactivate station by updating its isActive flag
 export const deactivateStation = (id) =>
-  api.put(`/stations/${id}/deactivate`).then(r => r.data);
+  api.put(`/api/Stations/${id}`, { isActive: false }).then(r => r.data);
