@@ -82,6 +82,9 @@ export default function StationForm(){
         <button className="bg-blue-600 text-white px-3 py-2 rounded disabled:opacity-50" disabled={saving}>{saving ? 'Saving...' : 'Save'}</button>
         <button type="button" className="border px-3 py-2 rounded" onClick={()=>nav('/app/stations')}>Cancel</button>
         <button type="button" className="ml-auto text-sm text-slate-500 underline" onClick={()=>{
+          // autofill example data for faster testing
+          setForm({ name:'New Station', address:'1 Test St', latitude:6.9271, longitude:79.8612, type:'AC', slots:4 })
+        }}>Auto-fill</button>
       </div>
     </form>
   )
