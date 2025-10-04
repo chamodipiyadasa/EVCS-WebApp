@@ -8,6 +8,7 @@ export default function Stations(){
   const [loading,setLoading]=useState(false)
   const [query,setQuery]=useState('')
   const [statusFilter,setStatusFilter]=useState('all') // all|active|deactivated
+  const [selected,setSelected] = useState(null)
 
   const load = async ()=>{
     setLoading(true)
@@ -108,10 +109,10 @@ export default function Stations(){
             </tr>
           </thead>
           <tbody>
-            {loading && <tr><td className="p-4" colSpan={5}>Loading…</td></tr>}
-            {!loading && filtered.length===0 && <tr><td className="p-4 text-slate-500" colSpan={5}>No stations match your search.</td></tr>}
+            {loading && <tr><td className="p-4" colSpan={7}>Loading…</td></tr>}
+            {!loading && filtered.length===0 && <tr><td className="p-4 text-slate-500" colSpan={7}>No stations match your search.</td></tr>}
             {filtered.map(s=>(
-              <tr key={s.id} className="border-t hover:bg-slate-50">
+              <tr key={s.id} className="border-t hover:bg-slate-50 cursor-pointer" onClick={()=>setSelected(s)}>
                 <td className="px-4 py-3 text-sm text-slate-500">{s.shortId || s.id}</td>
                 <td className="px-4 py-3 font-medium">{s.name}</td>
                 <td className="px-4 py-3 text-sm text-slate-600">{s.address}</td>
@@ -122,8 +123,8 @@ export default function Stations(){
                 </td>
                 <td className="px-4 py-3">
                   <div className="flex items-center gap-3">
-                    <Link className="text-sky-600 underline" to={`${s.id}`}>Edit</Link>
-                    <button className={`text-sm px-2 py-1 rounded ${s.active ? 'text-red-600 border border-red-100' : 'text-green-700 border border-green-100'}`} onClick={()=>toggleActive(s)}>
+                    <Link onClick={e=>e.stopPropagation()} className="text-sky-600 underline" to={`${s.id}`}>Edit</Link>
+                    <button onClick={e=>{ e.stopPropagation(); toggleActive(s) }} className={`text-sm px-2 py-1 rounded ${s.active ? 'text-red-600 border border-red-100' : 'text-green-700 border border-green-100'}`}>
                       {s.active ? 'Deactivate' : 'Activate'}
                     </button>
                   </div>
@@ -133,6 +134,36 @@ export default function Stations(){
           </tbody>
         </table>
       </div>
+
+      {/* Details modal */}
+      {selected && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/40" onClick={()=>setSelected(null)} />
+          <div className="bg-white rounded shadow-lg z-50 w-full max-w-xl mx-4">
+            <div className="p-4 border-b flex justify-between items-start">
+              <div>
+                <h2 className="text-lg font-semibold">{selected.name}</h2>
+                <div className="text-sm text-slate-500">{selected.shortId || selected.id}</div>
+              </div>
+              <div>
+                <button className="text-slate-500" onClick={()=>setSelected(null)}>Close</button>
+              </div>
+            </div>
+            <div className="p-4 space-y-2 text-sm text-slate-700">
+              <div><strong>Address:</strong> {selected.address}</div>
+              <div><strong>Type:</strong> {selected.type}</div>
+              <div><strong>Slots:</strong> {selected.slots}</div>
+              <div><strong>Latitude:</strong> {selected.latitude}</div>
+              <div><strong>Longitude:</strong> {selected.longitude}</div>
+              <div><strong>Active:</strong> {selected.active ? 'Yes' : 'No'}</div>
+              <div className="pt-2">
+                <Link to={`${selected.id}`} className="text-sky-600 underline" onClick={()=>setSelected(null)}>Edit station</Link>
+                <button className="ml-4 text-sm text-slate-600" onClick={()=>{ toggleActive(selected); setSelected(null) }}>{selected.active ? 'Deactivate' : 'Activate'}</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
