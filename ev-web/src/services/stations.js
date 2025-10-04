@@ -38,14 +38,35 @@ export async function updateStation(id, dto){
 }
 
 export async function deactivateStation(id){
-  // api.deactivateStation will set isActive=false on the server
-  const s = await api.deactivateStation(id)
+  // Some servers validate the full update DTO. To avoid 400 we fetch the
+  // existing station, merge the isActive flag and send a full update payload.
+  const existing = await api.getStation(id)
+  const dto = {
+    name: existing.name,
+    address: existing.address,
+    latitude: existing.latitude,
+    longitude: existing.longitude,
+    type: existing.type,
+    slots: existing.slots,
+    isActive: false,
+  }
+  const s = await api.updateStation(id, dto)
   return mapFromApi(s)
 }
 
 // Activate station by setting isActive=true using the update endpoint.
 export async function activateStation(id){
-  // reuse update endpoint to set isActive true
-  const s = await api.updateStation(id, { isActive: true })
+  // Fetch the existing record and send full DTO with isActive=true to satisfy server validation
+  const existing = await api.getStation(id)
+  const dto = {
+    name: existing.name,
+    address: existing.address,
+    latitude: existing.latitude,
+    longitude: existing.longitude,
+    type: existing.type,
+    slots: existing.slots,
+    isActive: true,
+  }
+  const s = await api.updateStation(id, dto)
   return mapFromApi(s)
 }

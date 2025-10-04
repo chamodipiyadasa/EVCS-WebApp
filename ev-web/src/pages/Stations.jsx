@@ -34,7 +34,17 @@ export default function Stations(){
       await load()
     }catch(e){
       console.error('Failed to toggle active', e)
-      toast.error(e?.response?.data?.message || e.message || 'Failed to update station')
+      // If the server returned ProblemDetails (validation errors) display a summarized message
+      const pd = e?.response?.data
+      if(pd && pd.title && pd.errors){
+        // join field errors into a single string
+        const msgs = Object.entries(pd.errors).flatMap(([k,arr])=>arr).join(' | ')
+        toast.error(`${pd.title}: ${msgs}`)
+      } else if(pd && pd.message){
+        toast.error(pd.message)
+      } else {
+        toast.error(e?.response?.data || e.message || 'Failed to update station')
+      }
     }
   }
 
