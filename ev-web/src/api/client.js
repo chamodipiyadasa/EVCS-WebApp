@@ -1,6 +1,11 @@
 import axios from "axios";
 
-const api = axios.create({ baseURL: import.meta.env.VITE_API_BASE });
+// Use VITE_API_BASE when available, otherwise fall back to localhost backend.
+// This prevents accidental requests to the Vite dev server (which returns HTML)
+// when the env var is not set during development.
+const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:5132';
+console.debug('[api] using base URL:', API_BASE)
+const api = axios.create({ baseURL: API_BASE });
 
 api.interceptors.request.use(cfg => {
   const t = localStorage.getItem("jwt");
