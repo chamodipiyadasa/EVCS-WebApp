@@ -1,11 +1,13 @@
 // src/components/AppLayout.jsx
-import { Link, Outlet, useLocation } from 'react-router-dom'
+import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../auth/useAuth'
 
 export default function AppLayout(){
   const { role, user } = useAuth()
   const loc = useLocation()
   const active = (p) => loc.pathname === p ? 'bg-slate-800 text-white' : 'text-slate-200 hover:bg-slate-800'
+  const navigate = useNavigate()
+
   return (
     <div className="min-h-screen flex bg-slate-50">
       <aside className="w-64 bg-slate-900 p-4 space-y-2">
@@ -20,7 +22,7 @@ export default function AppLayout(){
         <div className="text-xs text-slate-400 break-words">{user?.username}</div>
         <button
           className="mt-2 px-3 py-2 rounded bg-slate-800 hover:bg-slate-700 text-white"
-          onClick={()=>{localStorage.removeItem('jwt_mock'); location.href='/login'}}
+          onClick={()=>{localStorage.removeItem('jwt'); localStorage.removeItem('jwt_mock'); navigate('/login', { replace: true })}}
         >Logout</button>
       </aside>
       <main className="flex-1">
