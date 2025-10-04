@@ -1,10 +1,18 @@
 import api from "./client";
 
-// List all stations
-export const listStations = () =>
-  api.get("/stations").then(r => r.data);
+// Server API paths are under /api/Stations (capital S). Use exact paths so we
+// don't accidentally fetch the frontend route (which returns HTML and caused
+// `data.map is not a function`).
+export const listStations = () => {
+  // axios resolves the full URL internally; log it via request config
+  console.debug('[api] GET /api/Stations requesting baseURL=', api.defaults.baseURL)
+  return api.get("/api/Stations").then(r => {
+    // debug: log full response so we can inspect unexpected HTML or shapes
+    console.debug('[api] GET /api/Stations response:', r)
+    return r.data
+  });
+}
 
-// Get station by ID
 export const getStation = (id) =>
   api.get(`/stations/${id}`).then(r => r.data);
 
