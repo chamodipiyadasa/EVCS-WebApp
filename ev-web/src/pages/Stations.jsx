@@ -1,10 +1,19 @@
 import { useEffect, useState } from 'react'
 import { listStations, deactivateStation } from '../services/stations'
 import { Link } from 'react-router-dom'
+import toast from 'react-hot-toast'
 
 export default function Stations(){
   const [items,setItems]=useState([])
-  const load = async ()=> setItems(await listStations())
+  const load = async ()=>{
+    try{
+      const data = await listStations()
+      setItems(data)
+    }catch(e){
+      console.error('Failed to load stations', e)
+      toast.error(e.message || 'Failed to load stations')
+    }
+  }
   useEffect(()=>{ load() },[])
   return (
     <div className="space-y-3">
