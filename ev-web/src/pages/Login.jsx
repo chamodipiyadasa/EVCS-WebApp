@@ -47,7 +47,12 @@ export default function Login(){
       toast.success('Logged in')
       nav('/app')
     }catch(e){
-      toast.error('Invalid credentials (try admin/admin or op/op)')
+      // Log full error for debugging
+      console.error('[auth] login failed', e, e?.response?.data)
+      // Attempt to extract a useful message from the server response
+      const serverMsg = e?.response?.data?.message || e?.response?.data || e.message
+      const short = typeof serverMsg === 'string' ? serverMsg : JSON.stringify(serverMsg)
+      toast.error(short.slice(0,200))
     }
   }
   return (
