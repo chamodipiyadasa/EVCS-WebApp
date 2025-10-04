@@ -6,12 +6,16 @@ import toast from 'react-hot-toast'
 export default function Stations(){
   const [items,setItems]=useState([])
   const [loading,setLoading]=useState(false)
+  const [query,setQuery]=useState('')
+  const [statusFilter,setStatusFilter]=useState('all') // all|active|deactivated
 
   const load = async ()=>{
     setLoading(true)
     try{
       const data = await listStations()
-      setItems(data)
+      // assign a short, human-friendly ID for display (STATION01, STATION02...)
+      const withShortId = data.map((s,i)=>({ ...s, shortId: `STATION${String(i+1).padStart(2,'0')}`}))
+      setItems(withShortId)
     }catch(e){
       console.error('Failed to load stations', e)
       toast.error(e.message || 'Failed to load stations')
@@ -48,18 +52,55 @@ export default function Stations(){
     }
   }
 
+  // client-side filtering based on query and status
+  const filtered = items.filter(s=>{
+    const q = query.trim().toLowerCase()
+    if(q){
+      const combined = `${s.name} ${s.type} ${s.address} ${s.id} ${s.shortId || ''}`.toLowerCase()
+      if(!combined.includes(q)) return false
+    }
+    if(statusFilter==='active' && !s.active) return false
+    if(statusFilter==='deactivated' && s.active) return false
+    return true
+  })
+
   return (
     <div className="space-y-4">
-      <div className="flex justify-between items-center">
-        <h1 className="text-2xl font-semibold">Stations</h1>
-        <Link to="new" className="bg-blue-600 text-white px-4 py-2 rounded">Add Station</Link>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold">Stations</h1>
+          <p className="text-sm text-slate-500 mt-1">Manage charging points — add, edit, activate or deactivate stations</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Link to="new" className="inline-flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded shadow-sm hover:bg-blue-700">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+            Add Station
+          </Link>
+        </div>
+      </div>
+
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div className="flex items-center gap-2 w-full sm:w-1/2">
+          <input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search name, type, address or id" className="w-full border rounded px-3 py-2" />
+          {query && <button className="text-sm text-slate-500 underline" onClick={()=>setQuery('')}>Clear</button>}
+        </div>
+        <div className="flex items-center gap-2">
+          <select value={statusFilter} onChange={e=>setStatusFilter(e.target.value)} className="border rounded px-3 py-2">
+            <option value="all">All</option>
+            <option value="active">Active</option>
+            <option value="deactivated">Deactivated</option>
+          </select>
+          <div className="text-sm text-slate-500">Showing {filtered.length} / {items.length}</div>
+        </div>
       </div>
 
       <div className="bg-white shadow-sm border rounded overflow-auto">
         <table className="min-w-full table-auto">
           <thead className="bg-slate-50 text-slate-600 text-sm">
             <tr>
+              <th className="px-4 py-3 text-left">ID</th>
               <th className="px-4 py-3 text-left">Name</th>
+              <th className="px-4 py-3 text-left">Address</th>
               <th className="px-4 py-3 text-left">Type</th>
               <th className="px-4 py-3 text-left">Slots</th>
               <th className="px-4 py-3 text-left">Status</th>
@@ -68,14 +109,16 @@ export default function Stations(){
           </thead>
           <tbody>
             {loading && <tr><td className="p-4" colSpan={5}>Loading…</td></tr>}
-            {!loading && items.length===0 && <tr><td className="p-4 text-slate-500" colSpan={5}>No stations found.</td></tr>}
-            {items.map(s=>(
+            {!loading && filtered.length===0 && <tr><td className="p-4 text-slate-500" colSpan={5}>No stations match your search.</td></tr>}
+            {filtered.map(s=>(
               <tr key={s.id} className="border-t hover:bg-slate-50">
-                <td className="px-4 py-3">{s.name}</td>
+                <td className="px-4 py-3 text-sm text-slate-500">{s.shortId || s.id}</td>
+                <td className="px-4 py-3 font-medium">{s.name}</td>
+                <td className="px-4 py-3 text-sm text-slate-600">{s.address}</td>
                 <td className="px-4 py-3">{s.type}</td>
                 <td className="px-4 py-3">{s.slots}</td>
                 <td className="px-4 py-3">
-                  {s.active ? <span className="text-green-700 font-medium">Active</span> : <span className="text-slate-500">Deactivated</span>}
+                  {s.active ? <span className="inline-block bg-green-100 text-green-700 px-2 py-0.5 rounded text-xs font-semibold">Active</span> : <span className="inline-block bg-slate-100 text-slate-600 px-2 py-0.5 rounded text-xs">Deactivated</span>}
                 </td>
                 <td className="px-4 py-3">
                   <div className="flex items-center gap-3">
