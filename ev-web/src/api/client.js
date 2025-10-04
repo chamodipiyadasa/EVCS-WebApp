@@ -8,8 +8,13 @@ console.debug('[api] using base URL:', API_BASE)
 const api = axios.create({ baseURL: API_BASE });
 
 api.interceptors.request.use(cfg => {
-  const t = localStorage.getItem("jwt");
-  if (t) cfg.headers.Authorization = `Bearer ${t}`;
+  // Support both real JWT (from backend) and mock token used in development
+  const raw = localStorage.getItem("jwt") || localStorage.getItem('jwt_mock');
+  // Only attach Authorization when token looks like a JWT/JWE compact string (contains at least two dots)
+  if (raw && typeof raw === 'string' && raw.split('.').length >= 3) {
+    cfg.headers.Authorization = `Bearer ${raw}`
+  }
+  console.debug('[api] request', cfg.method, cfg.baseURL + cfg.url, cfg.headers)
   return cfg;
 });
 
