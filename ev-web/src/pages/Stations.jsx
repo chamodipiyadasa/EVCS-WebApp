@@ -95,7 +95,8 @@ export default function Stations(){
         </div>
       </div>
 
-      <div className="bg-white shadow-sm border rounded overflow-auto">
+      {/* Desktop/table view (md+) */}
+      <div className="hidden md:block bg-white shadow-sm border rounded overflow-auto">
         <table className="min-w-full table-auto">
           <thead className="bg-slate-50 text-slate-600 text-sm">
             <tr>
@@ -133,6 +134,34 @@ export default function Stations(){
             ))}
           </tbody>
         </table>
+      </div>
+
+      {/* Mobile card view (smaller than md) */}
+      <div className="md:hidden space-y-3">
+        {loading && <div className="p-4">Loading…</div>}
+        {!loading && filtered.length===0 && <div className="p-4 text-slate-500">No stations match your search.</div>}
+        {filtered.map(s=>(
+          <div key={s.id} className="border rounded p-3 shadow-sm" onClick={()=>setSelected(s)}>
+            <div className="flex justify-between items-start">
+              <div>
+                <div className="text-sm text-slate-500">{s.shortId || s.id}</div>
+                <div className="font-medium">{s.name}</div>
+                <div className="text-sm text-slate-600">{s.address}</div>
+              </div>
+              <div className="text-right">
+                <div className="text-sm">{s.type}</div>
+                <div className="text-sm">Slots: {s.slots}</div>
+                <div className="mt-2">{s.active ? <span className="inline-block bg-green-100 text-green-700 px-2 py-0.5 rounded text-xs font-semibold">Active</span> : <span className="inline-block bg-slate-100 text-slate-600 px-2 py-0.5 rounded text-xs">Deactivated</span>}</div>
+              </div>
+            </div>
+            <div className="mt-3 flex gap-2">
+              <Link onClick={e=>e.stopPropagation()} to={`${s.id}`} className="text-sky-600 underline">Edit</Link>
+              <button onClick={e=>{ e.stopPropagation(); toggleActive(s) }} className={`text-sm px-2 py-1 rounded ${s.active ? 'text-red-600 border border-red-100' : 'text-green-700 border border-green-100'}`}>
+                {s.active ? 'Deactivate' : 'Activate'}
+              </button>
+            </div>
+          </div>
+        ))}
       </div>
 
       {/* Details modal */}
