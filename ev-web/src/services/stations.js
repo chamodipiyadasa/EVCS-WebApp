@@ -1,16 +1,31 @@
-import { db } from './mockDb'
-export async function listStations(){ return [...db.stations] }
-export async function getStation(id){ return db.stations.find(s=>s.id===id) }
-export async function createStation(dto){
-  const id = 'st'+(db.stations.length+1)
-  const s = { id, active:true, ...dto }
-  db.stations.push(s); return s
+// src/services/stations.js
+import api from "../api/client";
+
+// List stations (role-aware: Backoffice -> all, Operator -> only my station)
+export async function listStations() {
+  const { data } = await api.get("/stations");
+  return data || [];
 }
-export async function updateStation(id, dto){
-  const i = db.stations.findIndex(s=>s.id===id)
-  if(i>-1) db.stations[i] = { ...db.stations[i], ...dto }
-  return db.stations[i]
+
+// One station by id
+export async function getStation(id) {
+  const { data } = await api.get(`/stations/${id}`);
+  return data;
 }
-export async function deactivateStation(id){
-  const s = db.stations.find(x=>x.id===id); if(s) s.active=false
+
+// Create (Backoffice)
+export async function createStation(req) {
+  const { data } = await api.post("/stations", req);
+  return data;
+}
+
+// Update (Backoffice) – req must include all fields the API expects
+export async function updateStation(id, req) {
+  await api.put(`/stations/${id}`, req);
+}
+
+// Assigned operators for a station (both Backoffice & Operator can call)
+export async function listOperatorsForStation(id) {
+  const { data } = await api.get(`/stations/${id}/operators`);
+  return data || [];
 }
