@@ -1,17 +1,29 @@
 import { useEffect, useState } from 'react'
 import { listOwners } from '../services/owners'
 import { listStations } from '../services/stations'
-import { listBookings } from '../services/bookings'
+import { listBookingsByStationDate } from '../services/bookings' // ✅ use station+date
 
 export default function Dashboard(){
   const [summary, setSummary] = useState({ users:2, owners:0, stations:0, activeBookings:0 })
   const [now] = useState(()=>new Date().toISOString())
 
   useEffect(()=>{
-    Promise.all([listOwners(), listStations(), listBookings()]).then(([o,s,b])=>{
-      const active = b.filter(x=>['Approved','Pending'].includes(x.status)).length
-      setSummary({ users:2, owners:o.length, stations:s.length, activeBookings:active })
-    })
+    (async () => {
+      try {
+        const [owners, stations] = await Promise.all([listOwners(), listStations()])
+        let active = 0
+        if (stations.length > 0) {
+          const today = new Date().toISOString().slice(0,10)
+          // use the first station just for a quick dashboard metric
+          const bookings = await listBookingsByStationDate(stations[0].id, today)
+          active = bookings.filter(x => ['Approved','Pending'].includes(x.status)).length
+        }
+        setSummary({ users:2, owners:owners.length, stations:stations.length, activeBookings:active })
+      } catch (e) {
+        // fallback if any call fails
+        setSummary(s => ({ ...s, owners:0, stations:0, activeBookings:0 }))
+      }
+    })()
   },[])
 
   return (
@@ -28,7 +40,7 @@ export default function Dashboard(){
         <Kpi title="System Users" value={summary.users} note="+3 this month" />
         <Kpi title="EV Owners" value={summary.owners} note="+12 this month" />
         <Kpi title="Charging Stations" value={summary.stations} note="100% uptime" />
-        <Kpi title="Active Bookings" value={summary.activeBookings} note="+8 today" />
+        <Kpi title="Active Bookings (today)" value={summary.activeBookings} note="first station" />
       </div>
 
       <div className="bg-white border rounded-xl p-4">
@@ -44,7 +56,7 @@ export default function Dashboard(){
           <li className="py-3 flex items-start justify-between">
             <div>
               <div className="font-medium">Booking confirmed</div>
-              <div className="text-slate-600 text-sm">Station A, Slot 2 — Oct 1, 2025 14:00</div>
+              <div className="text-slate-600 text-sm">Station A, Slot 2 — {new Date().toLocaleDateString()} 14:00</div>
             </div>
             <div className="text-slate-400 text-xs">15 minutes ago</div>
           </li>
