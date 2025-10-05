@@ -1,7 +1,7 @@
 
 // src/services/operatorAssignments.js
 // Frontend-only persistence for Operator ←→ Station assignment, in localStorage.
-// Shape: { [stationId]: "operatorUsername" }
+// Shape: { [stationId]: ["operatorUsername", ...] }
 
 const KEY = "evcs_operator_assignments_v1";
 
@@ -22,7 +22,9 @@ export function getAssignments() {
 /** Which operator is assigned to this station? */
 export function getAssignedOperator(stationId) {
   const map = readMap();
-  return map[stationId] || "";
+  const v = map[stationId];
+  if (!v) return [];
+  return Array.isArray(v) ? [...v] : [v];
 }
 
 /** Remove mapping for this station (if any) */
@@ -40,7 +42,15 @@ export function clearAssignmentForOperator(operatorUsername) {
   const map = readMap();
   let changed = false;
   for (const [sid, u] of Object.entries(map)) {
-    if (u === operatorUsername) {
+    if (Array.isArray(u)) {
+      const idx = u.indexOf(operatorUsername);
+      if (idx !== -1) {
+        u.splice(idx, 1);
+        changed = true;
+        if (u.length === 0) delete map[sid];
+      }
+    } else if (u === operatorUsername) {
+      // backwards-compat: single value
       delete map[sid];
       changed = true;
     }
@@ -54,14 +64,35 @@ export function clearAssignmentForOperator(operatorUsername) {
  */
 export function assignOperatorToStation(stationId, operatorUsername) {
   const map = readMap();
-  // 1) clear old station for this operator (uniqueness guarantee)
+  if (!stationId || !operatorUsername) {
+    writeMap(map);
+    return;
+  }
+  // 1) remove this operator from any other station arrays (uniqueness guarantee)
   for (const [sid, u] of Object.entries(map)) {
-    if (u === operatorUsername) delete map[sid];
+    if (Array.isArray(u)) {
+      const idx = u.indexOf(operatorUsername);
+      if (idx !== -1) {
+        u.splice(idx, 1);
+        if (u.length === 0) delete map[sid];
+      }
+    } else if (u === operatorUsername) {
+      // backwards-compat: single value
+      delete map[sid];
+    }
   }
-  // 2) set new station mapping
-  if (stationId && operatorUsername) {
-    map[stationId] = operatorUsername;
+
+  // 2) add operator to target station array (allow many operators per station)
+  const existing = map[stationId];
+  if (!existing) {
+    map[stationId] = [operatorUsername];
+  } else if (Array.isArray(existing)) {
+    if (!existing.includes(operatorUsername)) existing.push(operatorUsername);
+  } else {
+    // backwards-compat: convert single value to array
+    if (existing !== operatorUsername) map[stationId] = [existing, operatorUsername];
   }
+
   writeMap(map);
 }
 
