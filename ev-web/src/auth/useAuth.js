@@ -1,9 +1,19 @@
-import { useMemo } from 'react'
+// src/auth/useAuth.js
+import { useMemo } from "react";
 
-// Simple mock auth using localStorage (no backend yet)
-export function useAuth(){
-  const token = localStorage.getItem('jwt_mock') // stored as JSON string
-  const payload = useMemo(()=> token ? JSON.parse(token) : null, [token])
-  const role = payload?.role || null
-  return { isAuthed: !!token, role, user: payload }
+export function useAuth() {
+  const token = localStorage.getItem("jwt") || "";
+  const role = localStorage.getItem("role") || "";
+  const username = localStorage.getItem("username") || "";
+
+  // you can decode JWT here if you prefer, but we trust what /auth/login returned
+  return useMemo(
+    () => ({
+      isAuthed: Boolean(token),
+      role,
+      user: { username, role },
+      token,
+    }),
+    [token, role, username]
+  );
 }
