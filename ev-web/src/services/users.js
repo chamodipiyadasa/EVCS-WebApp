@@ -59,3 +59,19 @@ export async function updateUser(username, req) {
     throw e;
   }
 }
+
+export async function assignStation(username, stationId) {
+  const { data } = await api.post(`/users/${username}/assign/${stationId}`);
+  return data;
+}
+
+export async function unassignStation(username) {
+  const { data } = await api.post(`/users/${username}/unassign`);
+  return data;
+}
+
+// Current logged-in user (resolved by JWT)
+export async function getMe() {
+  const { data } = await api.get("/users/me");
+  return data; // { id, username, role, isActive, assignedStationId }
+}

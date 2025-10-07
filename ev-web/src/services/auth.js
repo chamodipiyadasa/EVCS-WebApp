@@ -6,5 +6,5 @@ export async function login(username, password) {
   localStorage.setItem("jwt", data.token);
   localStorage.setItem("role", data.role);
   localStorage.setItem("username", data.username);
-  return data;
+  return { token: data.token, role: data.role, username };
 }

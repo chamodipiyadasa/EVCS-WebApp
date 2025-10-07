@@ -1,3 +1,4 @@
+// src/pages/Login.jsx
 import { useState } from 'react'
 import { login } from '../services/auth'
 import { useNavigate } from 'react-router-dom'
@@ -11,18 +12,17 @@ export default function Login() {
   const submit = async (e) => {
     e.preventDefault()
     try {
-      const res = await login(u, p)
+      const res = await login(u, p) // { token, role, username }
 
-      // overwrite any old values
+      // store fresh values (api client picks up jwt automatically)
       localStorage.setItem('jwt', res.token)
-      localStorage.setItem('role', res.role)        // <-- used by useAuth
+      localStorage.setItem('role', res.role)
       localStorage.setItem('username', res.username)
 
       toast.success(`Welcome ${res.username}`)
 
-      // redirect per role
-      if (res.role === 'Operator') nav('/app/operator')
-      else nav('/app')
+      // Always go to /app — RoleLanding will redirect appropriately
+      nav('/app', { replace: true })
     } catch (err) {
       console.error(err)
       toast.error('Login failed')

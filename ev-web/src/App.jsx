@@ -1,3 +1,4 @@
+// src/App.jsx
 import { BrowserRouter, Routes, Route, Navigate, useParams } from 'react-router-dom'
 import AppLayout from './components/AppLayout'
 import Login from './pages/Login'
@@ -14,10 +15,11 @@ import Schedules from './pages/Schedules'
 import RequireRole from './auth/RequireRole'
 import { Toaster } from 'react-hot-toast'
 
-// Operator Dashboard
+// Operator pages
 import OperatorDashboard from './pages/OperatorDashboard'
 import OperatorBookings from './pages/OperatorBookings'
 import OperatorScanQR from './pages/OperatorScanQR'
+import RoleLanding from './pages/RoleLanding'
 
 // Helper to redirect while preserving :params
 function RedirectWithParams({ toPattern }) {
@@ -45,10 +47,20 @@ export default function App() {
             </RequireRole>
           }
         >
-          {/* Default Dashboard (Backoffice) */}
-          <Route index element={<Dashboard />} />
+          {/* Role-based landing (decides per role)  */}
+          <Route
+            index
+            element={
+              <RequireRole roles={['Backoffice','Operator']}>
+                <RoleLanding />
+              </RequireRole>
+            }
+          />
 
-          {/* ✅ Operator Dashboard */}
+          {/* Backoffice dashboard (reachable if you navigate directly) */}
+          <Route path="dashboard" element={<Dashboard />} />
+
+          {/* Operator */}
           <Route
             path="operator"
             element={
@@ -57,8 +69,6 @@ export default function App() {
               </RequireRole>
             }
           />
-
-          {/* ✅ Operator Bookings */}
           <Route
             path="operator/bookings"
             element={
@@ -67,8 +77,6 @@ export default function App() {
               </RequireRole>
             }
           />
-
-          {/* ✅ Operator Scan QR */}
           <Route
             path="operator/scan"
             element={
@@ -114,7 +122,7 @@ export default function App() {
             }
           />
 
-          {/* Stations */}
+          {/* Stations (Backoffice list / edit) */}
           <Route path="stations" element={<Stations />} />
           <Route
             path="stations/new"
@@ -133,13 +141,13 @@ export default function App() {
             }
           />
 
-          {/* Bookings */}
+          {/* Bookings (Backoffice) */}
           <Route path="bookings" element={<Bookings />} />
           <Route path="bookings/new" element={<BookingForm />} />
           <Route path="bookings/:id" element={<BookingForm />} />
           <Route path="bookings/:id/qr" element={<BookingQR />} />
 
-          {/* ✅ Schedules (Backoffice only) */}
+          {/* Schedules (Backoffice) */}
           <Route
             path="schedules"
             element={
@@ -150,25 +158,20 @@ export default function App() {
           />
         </Route>
 
-        {/* ---------- Aliases (so direct /owners works too) ---------- */}
-
-        {/* Owners */}
+        {/* Aliases */}
         <Route path="/owners" element={<Navigate to="/app/owners" replace />} />
         <Route path="/owners/new" element={<Navigate to="/app/owners/new" replace />} />
         <Route path="/owners/:nic" element={<RedirectWithParams toPattern="/app/owners/:nic" />} />
 
-        {/* Stations */}
         <Route path="/stations" element={<Navigate to="/app/stations" replace />} />
         <Route path="/stations/new" element={<Navigate to="/app/stations/new" replace />} />
         <Route path="/stations/:id" element={<RedirectWithParams toPattern="/app/stations/:id" />} />
 
-        {/* Bookings */}
         <Route path="/bookings" element={<Navigate to="/app/bookings" replace />} />
         <Route path="/bookings/new" element={<Navigate to="/app/bookings/new" replace />} />
         <Route path="/bookings/:id" element={<RedirectWithParams toPattern="/app/bookings/:id" />} />
         <Route path="/bookings/:id/qr" element={<RedirectWithParams toPattern="/app/bookings/:id/qr" />} />
 
-        {/* Optional alias for Schedules */}
         <Route path="/schedules" element={<Navigate to="/app/schedules" replace />} />
 
         {/* Default redirect */}
