@@ -3,43 +3,43 @@ import api from "../api/client";
 
 /* ---------- helpers ---------- */
 function toHHMMSS(t) {
-  if (!t) return "";
+  if (!t) return "00:00:00";
   const [h = "00", m = "00", s = "00"] = String(t).split(":");
-  return `${h.padStart(2, "0")}:${m.padStart(2, "0")}:${s.padStart(2, "0")}`;
+  return `${h.padStart(2, "0")}:${m.padStart(2, "0")}:${(s || "00").padStart(2, "0")}`;
 }
 function normSlots(slots = []) {
   return (slots || []).map((s) => ({
-    start: toHHMMSS(s.start),
+    start: toHHMMSS(s.start),   // "HH:mm" or "HH:mm:ss" -> "HH:mm:ss"
     end: toHHMMSS(s.end),
     available: Boolean(s.available),
-    capacity: Math.max(1, Number(s.capacity || 1)),
+    capacity: Math.max(0, Number(s.capacity ?? 0)), // 0 = maintenance block
   }));
 }
 
 /* ---------- queries ---------- */
 
 export async function getSchedule(stationId, date /* YYYY-MM-DD */) {
+  // Backend returns an array; we return first or null
   const { data } = await api.get("/schedules", { params: { stationId, date } });
-  // Backend returns an array; we use the first item or null
-  return (data && data[0]) || null;
+  return (Array.isArray(data) && data[0]) || null;
 }
 
 /* ---------- mutations ---------- */
 
 export async function upsertSchedule({ stationId, date, slots }) {
-  const body = {
-    stationId,
-    date,                // YYYY-MM-DD (DateOnly)
-    slots: normSlots(slots), // TimeOnly -> "HH:mm:ss"
-  };
+  // PUT then immediately GET to reflect server-side canonicalization
+  const body = { stationId, date, slots: normSlots(slots) };
+
   try {
-    const { data } = await api.put("/schedules", body);
-    return data;
+    await api.put("/schedules", body);
   } catch (err) {
-    // Bubble useful backend error if present
     const msg = err?.response?.data?.error || err?.response?.data || err.message;
     const e = new Error(msg);
     e.response = err.response;
     throw e;
   }
+
+  // Read back the saved schedule and return it
+  const fresh = await getSchedule(stationId, date);
+  return fresh;
 }

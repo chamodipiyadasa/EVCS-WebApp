@@ -27,6 +27,46 @@ function todayISO() {
   return new Date().toISOString().slice(0, 10);
 }
 
+// Accepts backend DateOnly {year,month,day} OR "YYYY-MM-DD"
+function fmtDate(d) {
+  if (!d) return "—";
+  if (typeof d === "string") return d;
+  const y = d.year ?? d.Year, m = d.month ?? d.Month, dd = d.day ?? d.Day;
+  if (y && m && dd) return `${y}-${String(m).padStart(2, "0")}-${String(dd).padStart(2, "0")}`;
+  return "—";
+}
+
+// Accepts backend TimeOnly {hour,minute,second} OR "HH:mm"|"HH:mm:ss"
+function fmtTime(t) {
+  if (!t) return "—";
+  if (typeof t === "string") {
+    const [h="00", m="00"] = t.split(":");
+    return `${h.padStart(2,"0")}:${m.padStart(2,"0")}`;
+  }
+  const h = t.hour ?? t.Hour ?? 0;
+  const m = t.minute ?? t.Minute ?? 0;
+  return `${String(h).padStart(2,"0")}:${String(m).padStart(2,"0")}`;
+}
+
+function StatusBadge({ status }) {
+  const cls =
+    status === "Approved" ? "bg-emerald-100 text-emerald-700" :
+    status === "Pending"  ? "bg-amber-100 text-amber-700"   :
+    status === "Completed"? "bg-sky-100 text-sky-700"        :
+                            "bg-rose-100 text-rose-700";
+  return <span className={`px-2 py-1 rounded-full text-xs ${cls}`}>{status}</span>;
+}
+
+function Chip({ children, tone="slate" }) {
+  const tones = {
+    slate: "bg-slate-100 text-slate-700",
+    sky: "bg-sky-100 text-sky-700",
+    violet: "bg-violet-100 text-violet-700",
+  };
+  return <span className={`px-2 py-1 rounded text-xs ${tones[tone]}`}>{children}</span>;
+}
+
+/* ---------- main ---------- */
 export default function Bookings() {
   const nav = useNavigate();
 
@@ -37,6 +77,10 @@ export default function Bookings() {
 
   const [loading, setLoading] = useState(true);
   const [loadingAction, setLoadingAction] = useState(null); // bookingId while acting
+
+  // Drawer (View) state
+  const [openView, setOpenView] = useState(false);
+  const [selected, setSelected] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -50,9 +94,7 @@ export default function Bookings() {
       }
     }
     init();
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, []);
 
   const refresh = async () => {
@@ -63,7 +105,7 @@ export default function Bookings() {
         date,
         days: 1,
       });
-      setRows(data || []);
+      setRows(Array.isArray(data) ? data : []);
     } catch (e) {
       console.error(e);
       toast.error("Failed to load bookings");
@@ -89,6 +131,8 @@ export default function Bookings() {
       await cancelBooking(id);
       toast.success("Booking cancelled");
       await refresh();
+      // close view if we were viewing this one
+      if (selected?.id === id) setOpenView(false);
     } catch (err) {
       const msg = err?.message || "Cancel failed";
       toast.error(msg);
@@ -110,6 +154,11 @@ export default function Bookings() {
       setLoadingAction(null);
     }
   };
+
+  function openDetails(b) {
+    setSelected(b);
+    setOpenView(true);
+  }
 
   return (
     <div className="space-y-6">
@@ -198,38 +247,36 @@ export default function Bookings() {
                       </div>
                       <div className="font-medium">{b.id.slice(0, 10)}…</div>
                     </td>
-                    <td className="px-4 py-2">{b.nic}</td>
                     <td className="px-4 py-2">
-                      <div className="font-medium">{st?.name || "—"}</div>
-                      <div className="text-xs text-slate-500">{b.stationId}</div>
+                      <span className="font-medium">{b.nic}</span>
+                    </td>
+                    <td className="px-4 py-2">
+                      <div className="flex flex-col">
+                        <span className="font-medium">{st?.name || "—"}</span>
+                        <span className="text-xs text-slate-500">{b.stationId}</span>
+                      </div>
                     </td>
                     <td className="px-4 py-2 text-center">
-                      {b.date?.year}-{String(b.date?.month).padStart(2, "0")}-
-                      {String(b.date?.day).padStart(2, "0")}
+                      <Chip tone="sky">{fmtDate(b.date)}</Chip>
                     </td>
                     <td className="px-4 py-2 text-center">
-                      {b.start?.hour?.toString().padStart(2, "0")}:
-                      {b.start?.minute?.toString().padStart(2, "0")} →
-                      {b.end?.hour?.toString().padStart(2, "0")}:
-                      {b.end?.minute?.toString().padStart(2, "0")}
+                      <Chip tone="violet">
+                        {fmtTime(b.start)} → {fmtTime(b.end)}
+                      </Chip>
                     </td>
                     <td className="px-4 py-2 text-center">
-                      <span
-                        className={`px-2 py-1 rounded-full text-xs ${
-                          b.status === "Approved"
-                            ? "bg-emerald-100 text-emerald-700"
-                            : b.status === "Pending"
-                            ? "bg-amber-100 text-amber-700"
-                            : b.status === "Completed"
-                            ? "bg-sky-100 text-sky-700"
-                            : "bg-rose-100 text-rose-700"
-                        }`}
-                      >
-                        {b.status}
-                      </span>
+                      <StatusBadge status={b.status} />
                     </td>
                     <td className="px-4 py-2">
                       <div className="flex gap-2 justify-end">
+                        <button
+                          onClick={() => openDetails(b)}
+                          className="px-3 py-1 border rounded-lg hover:bg-slate-50"
+                          title="View details"
+                        >
+                          View
+                        </button>
+
                         <Link
                           to={`/app/bookings/${b.id}`}
                           className="px-3 py-1 border rounded-lg hover:bg-slate-50"
@@ -259,17 +306,16 @@ export default function Bookings() {
                           </Link>
                         )}
 
-                        {b.status !== "Cancelled" &&
-                          b.status !== "Completed" && (
-                            <button
-                              disabled={loadingAction === b.id}
-                              onClick={() => doCancel(b.id)}
-                              className="px-3 py-1 rounded-lg bg-rose-600 text-white hover:bg-rose-700 disabled:opacity-50"
-                              title="Cancel"
-                            >
-                              Cancel
-                            </button>
-                          )}
+                        {b.status !== "Cancelled" && b.status !== "Completed" && (
+                          <button
+                            disabled={loadingAction === b.id}
+                            onClick={() => doCancel(b.id)}
+                            className="px-3 py-1 rounded-lg bg-rose-600 text-white hover:bg-rose-700 disabled:opacity-50"
+                            title="Cancel"
+                          >
+                            Cancel
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -279,6 +325,96 @@ export default function Bookings() {
           </table>
         )}
       </div>
+
+      {/* ---------- View Drawer ---------- */}
+      {openView && selected && (
+        <div className="fixed inset-0 z-40" aria-modal="true" role="dialog">
+          <div className="absolute inset-0 bg-black/30" onClick={() => setOpenView(false)} />
+          <div
+            className="absolute right-0 top-0 bottom-0 w-full max-w-md bg-white shadow-2xl p-5 overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between">
+              <div className="text-lg font-semibold">Booking Details</div>
+              <button onClick={() => setOpenView(false)} className="px-3 py-1 rounded border">
+                Close
+              </button>
+            </div>
+
+            <div className="mt-4 space-y-4 text-sm">
+              <div className="grid grid-cols-3 gap-2">
+                <div className="text-slate-500">Booking</div>
+                <div className="col-span-2">
+                  <div className="text-xs text-slate-400">{prettyId("BOOK", selected.id)}</div>
+                  <div className="font-medium">{selected.id}</div>
+                </div>
+
+                <div className="text-slate-500">Owner NIC</div>
+                <div className="col-span-2">{selected.nic}</div>
+
+                <div className="text-slate-500">Station</div>
+                <div className="col-span-2">
+                  <div className="font-medium">{stationMap[selected.stationId]?.name || "—"}</div>
+                  <div className="text-xs text-slate-500">{selected.stationId}</div>
+                </div>
+
+                <div className="text-slate-500">Date</div>
+                <div className="col-span-2">{fmtDate(selected.date)}</div>
+
+                <div className="text-slate-500">Time</div>
+                <div className="col-span-2">
+                  {fmtTime(selected.start)} → {fmtTime(selected.end)}
+                </div>
+
+                <div className="text-slate-500">Status</div>
+                <div className="col-span-2">
+                  <StatusBadge status={selected.status} />
+                </div>
+
+                <div className="text-slate-500">QR Token</div>
+                <div className="col-span-2 break-all">{selected.qrToken || "—"}</div>
+              </div>
+
+              <div className="pt-4 flex gap-2 justify-end">
+                <Link
+                  to={`/app/bookings/${selected.id}`}
+                  className="px-3 py-2 border rounded-lg hover:bg-slate-50"
+                  onClick={() => setOpenView(false)}
+                >
+                  Edit
+                </Link>
+                {selected.status === "Pending" && (
+                  <button
+                    disabled={loadingAction === selected.id}
+                    onClick={() => doApprove(selected.id)}
+                    className="px-3 py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50"
+                  >
+                    Approve
+                  </button>
+                )}
+                {selected.status === "Approved" && (
+                  <Link
+                    to={`/app/bookings/${selected.id}/qr`}
+                    className="px-3 py-2 rounded-lg bg-sky-600 text-white hover:bg-sky-700"
+                    onClick={() => setOpenView(false)}
+                  >
+                    Show QR
+                  </Link>
+                )}
+                {selected.status !== "Cancelled" && selected.status !== "Completed" && (
+                  <button
+                    disabled={loadingAction === selected.id}
+                    onClick={() => doCancel(selected.id)}
+                    className="px-3 py-2 rounded-lg bg-rose-600 text-white hover:bg-rose-700 disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

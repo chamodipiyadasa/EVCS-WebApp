@@ -1,4 +1,3 @@
-// src/pages/Schedules.jsx
 import { useEffect, useMemo, useState } from "react";
 import toast from "react-hot-toast";
 
@@ -8,61 +7,53 @@ import { listBookingsByStationDate } from "../services/bookings";
 
 /* ---------------- helpers ---------------- */
 
-const HOUR_ROWS = Array.from({ length: 24 }, (_, h) => `${String(h).padStart(2, "0")}:00`);
-const toISO = (d) => d.toISOString().slice(0, 10);
-const todayISO = () => toISO(new Date());
-const addDaysISO = (iso, n) => {
-  const d = new Date(iso);
-  d.setDate(d.getDate() + n);
-  return toISO(d);
-};
+const H24 = Array.from({ length: 24 }, (_, h) => h);
 
-const toMin = (hhmm) => {
-  const [h = "0", m = "0"] = String(hhmm || "00:00").split(":");
-  return Number(h) * 60 + Number(m);
-};
-const norm = (t) => {
-  if (!t) return "00:00";
-  const [h = "00", m = "00"] = t.split(":");
-  return `${h.padStart(2, "0")}:${m.padStart(2, "0")}`;
-};
-
-const overlaps = (s1, e1, s2, e2) => s1 < e2 && s2 < e1;
-
-/** Given schedule windows, return status for hour h and slotIndex k
- * statuses: "available" | "maintenance" | "closed"
- */
-function cellStatusForHour(slots, bookings, stationSlots, hour, slotIndex) {
-  const hStart = hour * 60;
-  const hEnd = hStart + 60;
-
-  // Find any schedule window covering this hour block
-  const covering = (slots || []).find((w) => {
-    const s = toMin(w.start);
-    const e = toMin(w.end);
-    return overlaps(s, e, hStart, hEnd);
-  });
-
-  if (!covering) return "closed"; // no schedule window → closed
-
-  if (covering.available === false) return "maintenance";
-
-  // capacity N exposes N columns as available (A1..AN)
-  if ((covering.capacity || 0) > slotIndex) return "available";
-
-  // slot index exceeds capacity
-  return "closed";
+function todayISO() {
+  return new Date().toISOString().slice(0, 10);
 }
-
-function fmtDayTab(dateISO) {
+function addDaysISO(dateISO, n) {
+  const d = new Date(dateISO);
+  d.setDate(d.getDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+function fmtDayTab(dateISO, baseISO) {
   const d = new Date(dateISO);
   const isToday = dateISO === todayISO();
-  return {
-    label: isToday
-      ? "Today"
-      : d.toLocaleDateString(undefined, { weekday: "short" }),
-    sub: d.toLocaleDateString(undefined, { month: "short", day: "numeric" }),
-  };
+  const wd = d.toLocaleDateString(undefined, { weekday: "short" });
+  const mon = d.toLocaleDateString(undefined, { month: "short" });
+  const day = d.getDate();
+  return { label: isToday ? "Today" : wd, sub: `${mon} ${day}` };
+}
+
+function hhmm(h) {
+  return `${String(h).padStart(2, "0")}:00`;
+}
+function toMinutes(hms) {
+  if (!hms) return 0;
+  const [h = "0", m = "0", s = "0"] = String(hms).split(":");
+  return Number(h) * 60 + Number(m) + (Number(s) ? Number(s) / 60 : 0);
+}
+function hourRange(h) {
+  const start = h * 60;
+  const end = start + 60;
+  return [start, end];
+}
+function overlaps(aStart, aEnd, bStart, bEnd) {
+  return aStart < bEnd && bStart < aEnd;
+}
+
+/** stable key for a slot row */
+function slotKey(slot, fallback) {
+  if (!slot) return `slot-${fallback}`;
+  return `${slot.start ?? "S"}_${slot.end ?? "E"}_${slot.capacity ?? "C"}_${slot.available ? "A" : "M"}`;
+}
+
+/* Make an empty slot template snapping to whole hours */
+function makeSlot(startHour = 9, endHour = 10, capacity = 1, available = true) {
+  const S = `${String(startHour).padStart(2, "0")}:00:00`;
+  const E = `${String(endHour).padStart(2, "0")}:00:00`;
+  return { start: S, end: E, capacity, available };
 }
 
 /* ---------------- component ---------------- */
@@ -70,142 +61,165 @@ function fmtDayTab(dateISO) {
 export default function Schedules() {
   const [stations, setStations] = useState([]);
   const [stationId, setStationId] = useState("");
-  const [stationMeta, setStationMeta] = useState(null); // for Slots count
+  const [stationMeta, setStationMeta] = useState(null); // for Slots max
 
-  // 7-day strip + calendar jump
+  // calendar base date (start of the visible 7-day window)
   const [baseDate, setBaseDate] = useState(todayISO());
-  const days = useMemo(
-    () => Array.from({ length: 7 }, (_, i) => addDaysISO(baseDate, i)),
-    [baseDate]
-  );
+  const days = useMemo(() => Array.from({ length: 7 }, (_, i) => addDaysISO(baseDate, i)), [baseDate]);
   const [dayIndex, setDayIndex] = useState(0);
   const date = days[dayIndex];
 
-  // data
-  const [windows, setWindows] = useState([]); // schedule windows
-  const [bookings, setBookings] = useState([]); // overlay
+  // editor state
+  const [slots, setSlots] = useState([]); // [{start,end,capacity,available}]
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
-  // lightweight editor popover
-  const [editOpen, setEditOpen] = useState(false);
-  const [editModel, setEditModel] = useState({ start: "09:00", end: "10:00", capacity: 1, available: true });
+  // quick grid data
+  const [bookings, setBookings] = useState([]);
 
-  const maxCapacity = Math.max(1, Number(stationMeta?.slots || 1));
-
-  /* -------- load stations once -------- */
+  // load stations once
   useEffect(() => {
-    let cancel = false;
+    let cancelled = false;
     (async () => {
       try {
         setLoading(true);
         const ss = await listStations().catch(() => []);
-        if (cancel) return;
+        if (cancelled) return;
         setStations(ss || []);
-        if (!stationId && ss?.length) setStationId(ss[0].id);
+        if (ss?.length && !stationId) {
+          setStationId(ss[0].id);
+        }
       } catch (e) {
         console.error(e);
         toast.error("Failed to load stations");
       } finally {
-        if (!cancel) setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     })();
-    return () => (cancel = true);
+    return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  /* -------- station meta (Slots count) -------- */
+  // load station meta (to know Slots max)
   useEffect(() => {
-    let cancel = false;
+    let cancelled = false;
     (async () => {
       if (!stationId) return;
       try {
         const meta = await getStation(stationId).catch(() => null);
-        if (!cancel) setStationMeta(meta);
+        if (!cancelled) setStationMeta(meta);
       } catch {}
     })();
-    return () => (cancel = true);
+    return () => { cancelled = true; };
   }, [stationId]);
 
-  /* -------- schedule + bookings for selected day -------- */
+  // load schedule + bookings whenever station/date changes
   useEffect(() => {
-    let cancel = false;
+    let cancelled = false;
     (async () => {
       if (!stationId || !date) return;
       try {
         setLoading(true);
-        const [sch, bs] = await Promise.all([
+        const [s, bs] = await Promise.all([
           getSchedule(stationId, date),
           listBookingsByStationDate(stationId, date).catch(() => []),
         ]);
-
-        if (cancel) return;
-        const mapped = (sch?.slots || []).map((x) => ({
-          start: (x.start || "").slice(0, 5), // HH:mm
-          end: (x.end || "").slice(0, 5),
-          capacity: Number(x.capacity || 0),
-          available: x.available !== false,
-        }));
-
-        setWindows(mapped);
+        if (cancelled) return;
+        setSlots(s?.slots || []);
         setBookings(bs || []);
       } catch (e) {
         console.error(e);
-        if (!cancel) {
-          setWindows([]);
+        if (!cancelled) {
+          setSlots([]);
           setBookings([]);
         }
       } finally {
-        if (!cancel) setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     })();
-    return () => (cancel = true);
+    return () => { cancelled = true; };
   }, [stationId, date]);
 
-  /* ---------------- editor ---------------- */
+  const maxCols = Math.max(1, Number(stationMeta?.slots || 1)); // columns in quick grid
 
-  function openEditor(preset) {
-    setEditModel({
-      start: preset?.start || "09:00",
-      end: preset?.end || "10:00",
-      capacity: Math.min(maxCapacity, Number(preset?.capacity || 1)),
-      available: preset?.available ?? true,
-    });
-    setEditOpen(true);
-  }
+  /* ------------- editor handlers ------------- */
 
-  function addWindow(model) {
-    const n = {
-      start: norm(model.start),
-      end: norm(model.end),
-      capacity: Math.min(maxCapacity, Math.max(0, Number(model.capacity || 0))),
-      available: model.available !== false,
-    };
-    if (toMin(n.end) <= toMin(n.start)) {
-      toast.error("End time must be after Start time");
-      return;
+  function addWindow() {
+    const last = slots[slots.length - 1];
+    let sh = 9, eh = 10;
+    if (last) {
+      const lastEndH = parseInt(String(last.end).split(":")[0] || "10", 10);
+      sh = Math.min(23, lastEndH);
+      eh = Math.min(24, lastEndH + 1);
     }
-    setWindows((prev) => {
-      const merged = [...prev, n].sort((a, b) => toMin(a.start) - toMin(b.start));
-      return merged;
-    });
-    setEditOpen(false);
+    const cap = Math.min(maxCols, 1);
+    setSlots((prev) => [...prev, makeSlot(sh, eh, cap, true)]);
   }
 
-  async function saveAll() {
+  function updateSlot(idx, patch) {
+    setSlots((prev) =>
+      prev.map((s, i) => (i === idx ? { ...s, ...patch } : s))
+    );
+  }
+
+  function removeSlot(idx) {
+    setSlots((prev) => prev.filter((_, i) => i !== idx));
+  }
+
+  function duplicateSlot(idx) {
+    setSlots((prev) => {
+      const base = prev[idx];
+      if (!base) return prev;
+      return [...prev, { ...base }];
+    });
+  }
+
+  function normalizeTime(val, fallback = "00:00:00") {
+    if (!val) return fallback;
+    const parts = val.split(":").map((x) => x.padStart(2, "0"));
+    if (parts.length === 2) return `${parts[0]}:${parts[1]}:00`;
+    if (parts.length >= 3) return `${parts[0]}:${parts[1]}:${parts[2]}`;
+    return fallback;
+  }
+
+  async function save() {
+    if (!stationId) return toast.error("Choose a station first");
+
+    for (const s of slots) {
+      const cap = Number(s.capacity || 0);
+      if (cap < 0) return toast.error("Capacity cannot be negative");
+      if (cap > maxCols) {
+        return toast.error(`Capacity (${cap}) cannot exceed station slots (${maxCols})`);
+      }
+    }
+    const sorted = [...slots].map((s) => ({
+      ...s,
+      start: normalizeTime(s.start, "00:00:00"),
+      end: normalizeTime(s.end, "00:00:00"),
+    })).sort((a, b) => toMinutes(a.start) - toMinutes(b.start));
+
+    for (let i = 0; i < sorted.length; i++) {
+      const a = sorted[i];
+      if (toMinutes(a.end) <= toMinutes(a.start)) {
+        return toast.error("Each window's end time must be after its start time");
+      }
+      for (let j = i + 1; j < sorted.length; j++) {
+        const b = sorted[j];
+        if (overlaps(toMinutes(a.start), toMinutes(a.end), toMinutes(b.start), toMinutes(b.end))) {
+          if (a.available && b.available) {
+            toast("Overlapping available windows detected — the grid will sum capacities.", { icon: "⚠️" });
+          }
+        }
+      }
+    }
+
     try {
       setSaving(true);
-      const payload = (windows || []).map((w) => ({
-        ...w,
-        start: `${w.start}:00`,
-        end: `${w.end}:00`,
-      }));
-      await upsertSchedule({ stationId, date, slots: payload });
+      await upsertSchedule({ stationId, date, slots: sorted });
       toast.success("Schedule saved");
-
-      // refresh bookings overlay
       const bs = await listBookingsByStationDate(stationId, date).catch(() => []);
       setBookings(bs || []);
+      setSlots(sorted);
     } catch (e) {
       console.error(e);
       const msg = e?.response?.data?.error || e?.response?.data || e.message;
@@ -215,66 +229,67 @@ export default function Schedules() {
     }
   }
 
-  function removeAllWindowsOnHour(h) {
-    const start = h * 60, end = start + 60;
-    setWindows((prev) =>
-      prev.filter((w) => !overlaps(toMin(w.start), toMin(w.end), start, end))
-    );
+  /* ------------- quick grid computation ------------- */
+
+  const hourRows = useMemo(() => {
+    return H24.map((h) => {
+      const [hs, he] = hourRange(h);
+      const covering = (slots || []).filter((s) => {
+        const ss = toMinutes(s.start);
+        const se = toMinutes(s.end);
+        return ss <= hs && se >= he;
+      });
+      const maintenance = covering.some((s) => s.available === false);
+      const capFromWindows = covering
+        .filter((s) => s.available !== false)
+        .reduce((sum, s) => sum + Math.max(0, Number(s.capacity || 0)), 0);
+
+      const capacity = Math.min(maxCols, Math.max(0, capFromWindows));
+      const bookedCount = maintenance
+        ? 0
+        : bookings.reduce((acc, b) => {
+            const bs = toMinutes(b.start);
+            const be = toMinutes(b.end);
+            return acc + (overlaps(hs, he, bs, be) ? 1 : 0);
+          }, 0);
+      const available = maintenance ? 0 : Math.max(0, capacity - bookedCount);
+
+      return { hour: h, label: hhmm(h), capacity, booked: bookedCount, available, maintenance };
+    });
+  }, [slots, bookings, maxCols]);
+
+  /* ------------- calendar controls ------------- */
+
+  function jump(daysDelta) {
+    setBaseDate((prev) => addDaysISO(prev, daysDelta));
+    setDayIndex(0);
+  }
+  function pickDate(iso) {
+    if (!iso) return;
+    setBaseDate(iso);
+    setDayIndex(0);
+  }
+  function goToday() {
+    const t = todayISO();
+    setBaseDate(t);
+    setDayIndex(0);
   }
 
-  /* ---------------- UI pieces ---------------- */
-
-  const cols = Math.max(1, Number(stationMeta?.slots || 1));
-  const colHeaders = Array.from({ length: cols }, (_, i) => `Slot ${String.fromCharCode(65 + i)}`);
-
-  function Legend() {
-    return (
-      <div className="flex gap-6 text-sm text-slate-600">
-        <span className="inline-flex items-center gap-2">
-          <span className="w-3 h-3 rounded bg-emerald-300 inline-block" /> Available
-        </span>
-        <span className="inline-flex items-center gap-2">
-          <span className="w-3 h-3 rounded bg-amber-300 inline-block" /> Booked
-        </span>
-        <span className="inline-flex items-center gap-2">
-          <span className="w-3 h-3 rounded bg-rose-300 inline-block" /> Maintenance
-        </span>
-        <span className="inline-flex items-center gap-2">
-          <span className="w-3 h-3 rounded bg-slate-200 inline-block" /> Closed
-        </span>
-      </div>
-    );
-  }
-
-  function BookedBadge({ hour }) {
-    // Show a tiny badge if this hour has bookings
-    const count = (bookings || []).filter((b) => {
-      const s = toMin((b.start || "").slice(0, 5));
-      const e = toMin((b.end || "").slice(0, 5));
-      return overlaps(s, e, hour * 60, hour * 60 + 60);
-    }).length;
-
-    if (!count) return null;
-    return (
-      <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-amber-200 text-amber-900">
-        {count} booking{count > 1 ? "s" : ""}
-      </span>
-    );
-  }
+  /* ---------------- render ---------------- */
 
   return (
     <div className="space-y-6">
       {/* Title */}
-      <div className="space-y-1">
+      <div>
         <div className="text-slate-500 text-xs">Schedules</div>
-        <div className="text-2xl font-semibold">Station Schedule</div>
-        <p className="text-slate-500 text-sm">
-          Quickly review a day. Windows define when slots are available; capacity ≤{" "}
-          <b>{stationMeta?.slots ?? "…"}</b> shows how many columns turn green. Operators see the result; Backoffice edits.
+        <div className="text-2xl font-semibold">Publish & Quick View</div>
+        <p className="text-slate-500 mt-1 text-sm">
+          A station’s <b>Slots</b> is the max simultaneous cars. Each schedule window can expose up to
+          that capacity (or be marked <b>Maintenance</b>).
         </p>
       </div>
 
-      {/* Controls */}
+      {/* Top controls: station selector + calendar & 7-day tabs */}
       <div className="bg-white border rounded-2xl p-4 shadow-sm space-y-4">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
@@ -292,15 +307,15 @@ export default function Schedules() {
             </select>
             {!!stationMeta && (
               <div className="text-xs text-slate-500 mt-1">
-                Slots (max capacity): <b>{stationMeta.slots}</b>
+                Max simultaneous vehicles: <b>{stationMeta.slots}</b>
               </div>
             )}
           </div>
 
-        {/* Calendar jump + 7-day strip */}
+          {/* Calendar controls */}
           <div className="flex items-center gap-2">
             <button
-              onClick={() => setBaseDate(addDaysISO(baseDate, -7))}
+              onClick={() => jump(-7)}
               className="px-3 py-2 rounded-lg border bg-slate-50 hover:bg-slate-100"
               title="Previous 7 days"
             >
@@ -310,19 +325,17 @@ export default function Schedules() {
               type="date"
               className="border rounded-lg px-3 py-2"
               value={baseDate}
-              onChange={(e) => {
-                setBaseDate(e.target.value);
-                setDayIndex(0);
-              }}
+              onChange={(e) => pickDate(e.target.value)}
             />
             <button
-              onClick={() => { setBaseDate(todayISO()); setDayIndex(0); }}
+              onClick={goToday}
               className="px-3 py-2 rounded-lg border bg-slate-50 hover:bg-slate-100"
+              title="Jump to today"
             >
               Today
             </button>
             <button
-              onClick={() => setBaseDate(addDaysISO(baseDate, 7))}
+              onClick={() => jump(7)}
               className="px-3 py-2 rounded-lg border bg-slate-50 hover:bg-slate-100"
               title="Next 7 days"
             >
@@ -331,9 +344,10 @@ export default function Schedules() {
           </div>
         </div>
 
+        {/* 7-day tabs */}
         <div className="flex gap-2 overflow-x-auto">
           {days.map((d, i) => {
-            const { label, sub } = fmtDayTab(d);
+            const { label, sub } = fmtDayTab(d, baseDate);
             const active = i === dayIndex;
             return (
               <button
@@ -354,182 +368,209 @@ export default function Schedules() {
             );
           })}
         </div>
+      </div>
 
-        <div className="flex items-center justify-between">
-          <Legend />
+      {/* Editor */}
+      <div className="bg-white border rounded-2xl shadow-sm overflow-hidden">
+        <div className="border-b px-5 py-3 font-semibold flex items-center justify-between">
+          <span>
+            Edit Windows — {new Date(date).toLocaleDateString()}{" "}
+            {stationMeta ? `• Max capacity ${stationMeta.slots}` : ""}
+          </span>
           <div className="flex gap-2">
             <button
-              onClick={() => openEditor({ start: "09:00", end: "10:00", capacity: Math.min(1, maxCapacity), available: true })}
+              onClick={addWindow}
               className="px-3 py-2 rounded-lg border bg-slate-50 hover:bg-slate-100"
             >
               + Add window
             </button>
             <button
-              onClick={saveAll}
+              onClick={save}
               disabled={saving}
-              className={"px-3 py-2 rounded-lg text-white " + (saving ? "bg-blue-300" : "bg-blue-600 hover:bg-blue-700")}
+              className={
+                "px-3 py-2 rounded-lg text-white " +
+                (saving ? "bg-blue-300" : "bg-blue-600 hover:bg-blue-700")
+              }
             >
               {saving ? "Saving…" : "Save"}
             </button>
           </div>
         </div>
-      </div>
 
-      {/* Grid */}
-      <div className="bg-white border rounded-2xl shadow-sm overflow-hidden">
-        <div className="border-b px-5 py-3 font-semibold">
-          Schedule for {new Date(date).toLocaleDateString()}
-        </div>
-
-        <div className="overflow-x-auto">
+        {slots.length === 0 ? (
+          <div className="py-10 text-center text-slate-500">
+            No windows yet. Click <b>+ Add window</b> to create the first one.
+          </div>
+        ) : (
           <table className="w-full text-sm">
             <thead className="bg-slate-50 text-slate-600">
               <tr>
-                <th className="px-4 py-2 text-left w-32">Time</th>
-                {colHeaders.map((h) => (
-                  <th key={h} className="px-4 py-2 text-center">{h}</th>
-                ))}
+                <th className="px-4 py-2 text-left">Start</th>
+                <th className="px-4 py-2 text-left">End</th>
+                <th className="px-4 py-2 text-center">Capacity</th>
+                <th className="px-4 py-2 text-center">Maintenance</th>
                 <th className="px-4 py-2 text-right w-40">Actions</th>
               </tr>
             </thead>
             <tbody>
-              {HOUR_ROWS.map((hh, row) => (
-                <tr key={`row-${hh}`} className="border-t">
-                  <td className="px-4 py-2 font-medium text-slate-700">
-                    {hh}
-                    <BookedBadge hour={row} />
-                  </td>
+              {slots.map((s, idx) => {
+                const cap = Number(s.capacity || 0);
+                const capErr = cap > maxCols || cap < 0;
+                return (
+                  <tr key={slotKey(s, idx)} className="border-t">
+                    <td className="px-4 py-2">
+                      <input
+                        className="border rounded px-2 py-1 w-28"
+                        placeholder="HH:mm"
+                        value={(s.start || "").slice(0, 5)}
+                        onChange={(e) =>
+                          updateSlot(idx, { start: normalizeTime(e.target.value, s.start) })
+                        }
+                      />
+                    </td>
+                    <td className="px-4 py-2">
+                      <input
+                        className="border rounded px-2 py-1 w-28"
+                        placeholder="HH:mm"
+                        value={(s.end || "").slice(0, 5)}
+                        onChange={(e) =>
+                          updateSlot(idx, { end: normalizeTime(e.target.value, s.end) })
+                        }
+                      />
+                    </td>
+                    <td className="px-4 py-2 text-center">
+                      <input
+                        type="number"
+                        className={
+                          "border rounded px-2 py-1 w-24 text-center " +
+                          (capErr ? "border-rose-300 bg-rose-50" : "")
+                        }
+                        min={0}
+                        max={maxCols}
+                        value={cap}
+                        onChange={(e) => updateSlot(idx, { capacity: Number(e.target.value || 0) })}
+                      />
+                      {capErr && (
+                        <div className="text-rose-600 text-xs mt-1">≤ {maxCols}</div>
+                      )}
+                    </td>
+                    <td className="px-4 py-2 text-center">
+                      <input
+                        type="checkbox"
+                        checked={s.available === false}
+                        onChange={(e) => updateSlot(idx, { available: e.target.checked ? false : true })}
+                      />
+                    </td>
+                    <td className="px-4 py-2 text-right">
+                      <div className="flex justify-end gap-2">
+                        <button
+                          onClick={() => duplicateSlot(idx)}
+                          className="px-2 py-1 rounded border bg-slate-50 hover:bg-slate-100"
+                        >
+                          Duplicate
+                        </button>
+                        <button
+                          onClick={() => removeSlot(idx)}
+                          className="px-2 py-1 rounded border bg-rose-50 text-rose-700 hover:bg-rose-100"
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+      </div>
 
-                  {/* slot columns */}
-                  {Array.from({ length: cols }, (_, k) => {
-                    const st = cellStatusForHour(windows, bookings, cols, row, k);
-                    const bg =
-                      st === "available"
-                        ? "bg-emerald-100 text-emerald-700"
-                        : st === "maintenance"
-                        ? "bg-rose-100 text-rose-700"
-                        : "bg-slate-100 text-slate-500";
-                    const label =
-                      st === "available" ? "Available" : st === "maintenance" ? "Maintenance" : "Closed";
-                    return (
-                      <td key={`c-${row}-${k}`} className="px-2 py-2 text-center">
-                        <span className={`px-2 py-1 rounded text-xs ${bg}`}>{label}</span>
+      {/* Legend */}
+      <div className="bg-white border rounded-xl px-4 py-3 shadow-sm text-sm">
+        <div className="flex items-center gap-6">
+          <span className="text-slate-500">Legend:</span>
+          <span className="inline-flex items-center gap-2">
+            <span className="w-3 h-3 rounded bg-slate-200 inline-block" />
+            <span className="text-slate-600">Available</span>
+          </span>
+          <span className="inline-flex items-center gap-2">
+            <span className="w-3 h-3 rounded bg-amber-200 inline-block" />
+            <span className="text-slate-600">Booked</span>
+          </span>
+          <span className="inline-flex items-center gap-2">
+            <span className="w-3 h-3 rounded bg-rose-200 inline-block" />
+            <span className="text-slate-600">Maintenance</span>
+          </span>
+        </div>
+      </div>
+
+      {/* Quick grid */}
+      <div className="bg-white border rounded-2xl shadow-sm overflow-hidden">
+        <div className="border-b px-5 py-3 font-semibold flex items-center justify-between">
+          <span>Quick View — {new Date(date).toLocaleDateString()}</span>
+          <span className="text-slate-500 text-sm">Columns = station capacity ({maxCols})</span>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="min-w-[720px] w-full text-sm">
+            <thead className="bg-slate-50 text-slate-600">
+              <tr>
+                <th className="px-4 py-2 text-left w-24">Time</th>
+                {Array.from({ length: maxCols }, (_, i) => (
+                  <th key={`h-${i}`} className="px-4 py-2 text-center">
+                    Slot {i + 1}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {hourRows.map((r) => {
+                const cells = [];
+                if (r.maintenance) {
+                  for (let i = 0; i < maxCols; i++) {
+                    cells.push(
+                      <td key={`m-${r.hour}-${i}`} className="px-4 py-2 text-center bg-rose-50 text-rose-700">
+                        Maintenance
                       </td>
                     );
-                  })}
+                  }
+                } else {
+                  const booked = Math.min(r.booked, r.capacity);
+                  const available = Math.max(0, r.capacity - booked);
+                  for (let i = 0; i < booked; i++) {
+                    cells.push(
+                      <td key={`b-${r.hour}-${i}`} className="px-4 py-2 text-center bg-amber-100 text-amber-800">
+                        Booked
+                      </td>
+                    );
+                  }
+                  for (let i = 0; i < available; i++) {
+                    cells.push(
+                      <td key={`a-${r.hour}-${i}`} className="px-4 py-2 text-center bg-slate-100 text-slate-700">
+                        Available
+                      </td>
+                    );
+                  }
+                  for (let i = r.capacity; i < maxCols; i++) {
+                    cells.push(
+                      <td key={`f-${r.hour}-${i}`} className="px-4 py-2 text-center bg-slate-50 text-slate-400">
+                        —
+                      </td>
+                    );
+                  }
+                }
 
-                  {/* row actions */}
-                  <td className="px-4 py-2">
-                    <div className="flex justify-end gap-2">
-                      <button
-                        onClick={() =>
-                          openEditor({
-                            start: `${String(row).padStart(2, "0")}:00`,
-                            end: `${String(Math.min(row + 1, 24)).padStart(2, "0")}:00`,
-                            capacity: Math.min(1, maxCapacity),
-                            available: true,
-                          })
-                        }
-                        className="px-2 py-1 rounded border bg-slate-50 hover:bg-slate-100"
-                      >
-                        Edit windows
-                      </button>
-                      <button
-                        onClick={() => removeAllWindowsOnHour(row)}
-                        className="px-2 py-1 rounded border bg-rose-50 text-rose-700 hover:bg-rose-100"
-                      >
-                        Clear hour
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+                return (
+                  <tr key={`row-${r.hour}`} className="border-t">
+                    <td className="px-4 py-2 font-mono text-slate-600">{r.label}</td>
+                    {cells}
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
       </div>
-
-      {/* Editor Drawer (simple) */}
-      {editOpen && (
-        <div className="fixed inset-0 bg-black/30 z-40" onClick={() => setEditOpen(false)}>
-          <div
-            className="absolute right-0 top-0 bottom-0 w-full max-w-md bg-white shadow-xl p-5 overflow-y-auto"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between">
-              <div className="text-lg font-semibold">Add / Update Window</div>
-              <button onClick={() => setEditOpen(false)} className="px-3 py-1 rounded border">Close</button>
-            </div>
-
-            <div className="mt-4 space-y-4">
-              <div>
-                <div className="text-sm text-slate-600">Start</div>
-                <input
-                  type="time"
-                  step="900"
-                  className="border rounded px-3 py-2 w-40"
-                  value={norm(editModel.start)}
-                  onChange={(e) => setEditModel((m) => ({ ...m, start: norm(e.target.value) }))}
-                />
-              </div>
-              <div>
-                <div className="text-sm text-slate-600">End</div>
-                <input
-                  type="time"
-                  step="900"
-                  className="border rounded px-3 py-2 w-40"
-                  value={norm(editModel.end)}
-                  onChange={(e) => setEditModel((m) => ({ ...m, end: norm(e.target.value) }))}
-                />
-              </div>
-              <div>
-                <div className="text-sm text-slate-600">
-                  Capacity <span className="text-slate-400">(0–{maxCapacity})</span>
-                </div>
-                <input
-                  type="number"
-                  min={0}
-                  max={maxCapacity}
-                  className="border rounded px-3 py-2 w-32"
-                  value={editModel.capacity}
-                  onChange={(e) =>
-                    setEditModel((m) => ({ ...m, capacity: Number(e.target.value || 0) }))
-                  }
-                />
-              </div>
-
-              <label className="inline-flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={editModel.available === false}
-                  onChange={(e) => setEditModel((m) => ({ ...m, available: e.target.checked ? false : true }))}
-                />
-                <span className="text-sm text-slate-600">Mark as maintenance</span>
-              </label>
-
-              <div className="pt-2 flex gap-2">
-                <button
-                  onClick={() => addWindow(editModel)}
-                  className="px-3 py-2 rounded bg-blue-600 text-white hover:bg-blue-700"
-                >
-                  Add / Merge
-                </button>
-                <button
-                  onClick={() => setEditOpen(false)}
-                  className="px-3 py-2 rounded border bg-slate-50 hover:bg-slate-100"
-                >
-                  Cancel
-                </button>
-              </div>
-
-              <div className="text-xs text-slate-500 mt-4">
-                Tip: You can add multiple windows (e.g., 09:00–12:00 capacity 2, then 14:00–18:00 capacity 1). The table
-                will turn <b>green</b> for exposed slots, <b>rose</b> for maintenance, and <b>grey</b> when closed.
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
 
       {loading && <div className="text-center text-slate-500 py-6">Loading…</div>}
     </div>
