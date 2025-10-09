@@ -1,43 +1,45 @@
 // src/services/schedules.js
 import api from "../api/client";
 
-/** Ensure strict formats the API expects */
-function toHms(hm) {
-  if (!hm) return "";
-  return hm.length === 5 ? hm + ":00" : hm; // "HH:mm" -> "HH:mm:ss"
+/* ---------- helpers ---------- */
+function toHHMMSS(t) {
+  if (!t) return "";
+  const [h = "00", m = "00", s = "00"] = String(t).split(":");
+  return `${h.padStart(2, "0")}:${m.padStart(2, "0")}:${s.padStart(2, "0")}`;
+}
+function normSlots(slots = []) {
+  return (slots || []).map((s) => ({
+    start: toHHMMSS(s.start),
+    end: toHHMMSS(s.end),
+    available: Boolean(s.available),
+    capacity: Math.max(1, Number(s.capacity || 1)),
+  }));
 }
 
-/** GET /api/schedules?stationId=...&date=YYYY-MM-DD
- *  Some backends return a single object, others return [object].
- *  Normalize to a single object with { stationId, date, slots }.
- */
-export async function getSchedule(stationId, date) {
-  if (!stationId || !date) return null;
+/* ---------- queries ---------- */
+
+export async function getSchedule(stationId, date /* YYYY-MM-DD */) {
   const { data } = await api.get("/schedules", { params: { stationId, date } });
-  if (!data) return null;
-
-  // If array, take the first item that has a slots array (or the first item at least)
-  if (Array.isArray(data)) {
-    const first = data.find(x => Array.isArray(x?.slots) || Array.isArray(x?.Slots)) || data[0];
-    return first ?? null;
-  }
-  return data; // already a single object
+  // Backend returns an array; we use the first item or null
+  return (data && data[0]) || null;
 }
 
-/** PUT /api/schedules with {stationId, date, slots: [{start,end,available,capacity}]} */
+/* ---------- mutations ---------- */
+
 export async function upsertSchedule({ stationId, date, slots }) {
-  const payload = {
+  const body = {
     stationId,
-    date, // MUST be "YYYY-MM-DD"
-    slots: (slots || []).map(s => ({
-      start: toHms(s.start), // MUST be "HH:mm:ss"
-      end: toHms(s.end),
-      available: s.available !== false,
-      capacity: Number.isFinite(+s.capacity) ? +s.capacity : 1,
-    })),
+    date,                // YYYY-MM-DD (DateOnly)
+    slots: normSlots(slots), // TimeOnly -> "HH:mm:ss"
   };
-  await api.put("/schedules", payload, {
-    headers: { "Content-Type": "application/json" },
-  });
-  return true;
+  try {
+    const { data } = await api.put("/schedules", body);
+    return data;
+  } catch (err) {
+    // Bubble useful backend error if present
+    const msg = err?.response?.data?.error || err?.response?.data || err.message;
+    const e = new Error(msg);
+    e.response = err.response;
+    throw e;
+  }
 }

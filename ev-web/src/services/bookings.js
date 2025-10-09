@@ -2,13 +2,26 @@
 import api from "../api/client";
 import { listStations } from "./stations";
 
+/* ---------------- helpers ---------------- */
+function toHHMMSS(t) {
+  // accepts "HH:mm" or "HH:mm:ss" and returns "HH:mm:ss"
+  if (!t) return t;
+  const parts = String(t).split(":");
+  if (parts.length === 2) return `${parts[0].padStart(2,"0")}:${parts[1].padStart(2,"0")}:00`;
+  if (parts.length === 3) return `${parts[0].padStart(2,"0")}:${parts[1].padStart(2,"0")}:${parts[2].padStart(2,"0")}`;
+  return t;
+}
+
 /* ---------------- Queries ---------------- */
 
 // List bookings by station + date (YYYY-MM-DD)
 export async function listBookingsByStationDate(stationId, date) {
   const { data } = await api.get("/bookings", { params: { stationId, date } });
-  return data;
+  return data || [];
 }
+
+// ✅ alias to match OperatorDashboard import
+export const listByStationAndDate = listBookingsByStationDate;
 
 // Get one booking by id
 export async function getBooking(id) {
@@ -36,7 +49,9 @@ export async function listBookingsAggregate({
       return await listBookingsByStationDate(stationId, date);
     }
     const stations = await listStations().catch(() => []);
-    const jobs = (stations || []).map((s) => listBookingsByStationDate(s.id, date).catch(() => []));
+    const jobs = (stations || []).map((s) =>
+      listBookingsByStationDate(s.id, date).catch(() => [])
+    );
     const results = await Promise.all(jobs);
     return results.flat();
   }
@@ -49,7 +64,9 @@ export async function listBookingsAggregate({
   });
 
   if (stationId && stationId !== "ALL") {
-    const jobs = daysArr.map((d) => listBookingsByStationDate(stationId, d).catch(() => []));
+    const jobs = daysArr.map((d) =>
+      listBookingsByStationDate(stationId, d).catch(() => [])
+    );
     const results = await Promise.all(jobs);
     return results.flat();
   }
@@ -68,16 +85,26 @@ export async function listBookingsAggregate({
 /* ---------------- Mutations ---------------- */
 
 // Create a booking
-// req = { nic, stationId, date:'YYYY-MM-DD', start:'HH:mm:ss', end:'HH:mm:ss' }
+// req = { nic, stationId, date:'YYYY-MM-DD', start:'HH:mm'|'HH:mm:ss', end:'HH:mm'|'HH:mm:ss' }
 export async function createBooking(req) {
-  const { data } = await api.post("/bookings", req);
+  const payload = {
+    ...req,
+    start: toHHMMSS(req.start),
+    end: toHHMMSS(req.end),
+  };
+  const { data } = await api.post("/bookings", payload);
   return data;
 }
 
 // Update a booking
-// req = { date:'YYYY-MM-DD', start:'HH:mm:ss', end:'HH:mm:ss' }
+// req = { date:'YYYY-MM-DD', start:'HH:mm'|'HH:mm:ss', end:'HH:mm'|'HH:mm:ss' }
 export async function updateBooking(id, req) {
-  await api.put(`/bookings/${id}`, req);
+  const payload = {
+    ...req,
+    start: toHHMMSS(req.start),
+    end: toHHMMSS(req.end),
+  };
+  await api.put(`/bookings/${id}`, payload);
 }
 
 // Cancel a booking (bubble backend message)

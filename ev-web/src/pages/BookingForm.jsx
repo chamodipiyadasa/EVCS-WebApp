@@ -1,345 +1,306 @@
-// src/pages/BookingForm.jsx
-import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { useEffect, useMemo, useState } from "react";
-import { getBooking, createBooking, updateBooking } from "../services/bookings";
 import { listStations } from "../services/stations";
-import { getSchedule } from "../services/schedules";
+import {
+  createBooking,
+  updateBooking,
+  getBooking,
+  listBookingsByStationDate,
+} from "../services/bookings";
+import api from "../api/client";
+import { useNavigate, useParams } from "react-router-dom";
 import toast from "react-hot-toast";
 
-/* ---------- pretty ID (frontend-only) ---------- */
-function hashCode(str) {
-  let h = 0;
-  for (let i = 0; i < str.length; i++) {
-    h = (h << 5) - h + str.charCodeAt(i);
-    h |= 0;
-  }
-  return Math.abs(h);
+/* ---------- helpers ---------- */
+function todayISO() {
+  return new Date().toISOString().slice(0, 10);
 }
-function prettyId(prefix, raw, width = 3) {
-  if (!raw) return `${prefix}${"".padStart(width, "0")}`;
-  const n = (hashCode(String(raw)) % 1000) + 1; // 001..1000
-  return `${prefix}${String(n).padStart(width, "0")}`;
+function addDaysISO(d, n) {
+  const dt = new Date(d);
+  dt.setDate(dt.getDate() + n);
+  return dt.toISOString().slice(0, 10);
+}
+function hhmmss(h, m) {
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:00`;
+}
+function toHHMMSS(t) {
+  if (!t) return "";
+  const [h = "00", m = "00", s = "00"] = String(t).split(":");
+  return `${h.padStart(2, "0")}:${m.padStart(2, "0")}:${s.padStart(2, "0")}`;
+}
+function slotKey(slot, i) {
+  const start = toHHMMSS(slot?.start);
+  const end = toHHMMSS(slot?.end);
+  return `${start || "start"}-${end || "end"}-${i}`;
+}
+function slotLabel(slot) {
+  const start = toHHMMSS(slot?.start);
+  const end = toHHMMSS(slot?.end);
+  if (!start || !end) return "Invalid slot";
+  return `${start} → ${end} (cap ${slot?.capacity ?? 1})`;
 }
 
 export default function BookingForm() {
-  const { id } = useParams();
-  const editing = !!id;
   const nav = useNavigate();
-  const [sp] = useSearchParams();
+  const { id } = useParams();
+  const isEdit = Boolean(id);
 
-  // 7-day window
-  const today = useMemo(() => new Date(), []);
-  const minDate = useMemo(() => today.toISOString().slice(0, 10), [today]);
-  const maxDate = useMemo(
-    () => new Date(today.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
-    [today]
-  );
-
-  // reference data
   const [stations, setStations] = useState([]);
-  const [scheduleRaw, setScheduleRaw] = useState(null);
-  const [slots, setSlots] = useState([]);
-  const [loadingSchedule, setLoadingSchedule] = useState(false);
-  const [manual, setManual] = useState(false);
+  const [stationId, setStationId] = useState("");
+  const [nic, setNic] = useState("");
+  const [date, setDate] = useState(todayISO());
+  const [slot, setSlot] = useState("");
 
-  // form state (match backend)
-  const [form, setForm] = useState({
-    nic: "",
-    stationId: sp.get("stationId") || "",
-    date: sp.get("date") || minDate,
-    start: "",
-    end: "",
-  });
+  const [schedule, setSchedule] = useState(null);
+  const [conflicts, setConflicts] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
 
-  /* --------- time helpers / normalizers --------- */
-  const two = (n) => String(n).padStart(2, "0");
-  const toHmss = (hm) => (hm && hm.length === 5 ? hm + ":00" : hm);
-
-  function toHmFromAny(val) {
-    if (typeof val === "string") {
-      const m = val.match(/^(\d{2}):(\d{2})/);
-      if (m) return `${m[1]}:${m[2]}`;
-    }
-    if (val && typeof val === "object") {
-      const h = val.hours ?? val.Hours ?? val.hour ?? val.Hour;
-      const m = val.minutes ?? val.Minutes ?? val.minute ?? val.Minute;
-      if (Number.isFinite(h) && Number.isFinite(m)) return `${two(h)}:${two(m)}`;
-      if (typeof val.Value === "string") return toHmFromAny(val.Value);
-      if (typeof val.value === "string") return toHmFromAny(val.value);
-    }
-    return "";
-  }
-  function pick(obj, keys) {
-    for (const k of keys) {
-      if (obj && obj[k] !== undefined) return obj[k];
-    }
-    return undefined;
-  }
-  function normSlot(raw) {
-    if (!raw || typeof raw !== "object") return null;
-    const startRaw = pick(raw, ["start", "Start", "from", "From", "begin", "Begin"]);
-    const endRaw = pick(raw, ["end", "End", "to", "To", "finish", "Finish"]);
-    let start = toHmFromAny(startRaw);
-    let end = toHmFromAny(endRaw);
-
-    if (!start) {
-      for (const v of Object.values(raw)) {
-        const t = toHmFromAny(v);
-        if (t) { start = t; break; }
-      }
-    }
-    if (!end) {
-      for (const v of Object.values(raw)) {
-        const t = toHmFromAny(v);
-        if (t && t !== start) { end = t; break; }
-      }
-    }
-    const available = (raw.available ?? raw.Available ?? true) !== false;
-    const capVal = pick(raw, ["capacity", "Capacity", "cap", "Cap"]);
-    const capacity = capVal != null ? Number(capVal) : undefined;
-
-    if (!start || !end) return null;
-    return { start, end, available, capacity };
-  }
-  function extractSlots(sch) {
-    if (!sch) return [];
-    const arr1 = sch.slots ?? sch.Slots;
-    if (Array.isArray(arr1)) return arr1.map(normSlot).filter(Boolean);
-    if (Array.isArray(sch)) return sch.map(normSlot).filter(Boolean);
-    for (const v of Object.values(sch)) {
-      if (Array.isArray(v)) return v.map(normSlot).filter(Boolean);
-    }
-    return [];
-  }
-
-  /* --------- data loads --------- */
+  /* ---------- initial data ---------- */
   useEffect(() => {
-    listStations()
-      .then((s) => {
-        setStations(s || []);
-        // if coming from /bookings/new with ?stationId, keep it; else default first
-        if (!form.stationId && s && s.length) {
-          setForm((f) => ({ ...f, stationId: s[0].id }));
+    let cancelled = false;
+    async function init() {
+      try {
+        setLoading(true);
+        const ss = await listStations().catch(() => []);
+        if (!cancelled) setStations(ss);
+
+        if (isEdit) {
+          const b = await getBooking(id);
+          const d = `${b.date.year}-${String(b.date.month).padStart(2, "0")}-${String(
+            b.date.day
+          ).padStart(2, "0")}`;
+          const start = hhmmss(b.start.hour, b.start.minute);
+          const end = hhmmss(b.end.hour, b.end.minute);
+          if (!cancelled) {
+            setNic(b.nic);
+            setStationId(b.stationId);
+            setDate(d);
+            setSlot(`${start}|${end}`);
+          }
+        } else if (ss.length > 0) {
+          if (!cancelled) setStationId(ss[0].id);
         }
-      })
-      .catch(() => setStations([]));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  useEffect(() => {
-    if (!editing) return;
-    getBooking(id)
-      .then((b) =>
-        setForm({
-          nic: b.nic,
-          stationId: b.stationId,
-          date: String(b.date),
-          start: toHmFromAny(b.start),
-          end: toHmFromAny(b.end),
-        })
-      )
-      .catch((err) => {
-        console.error(err);
-        toast.error("Failed to load booking");
-      });
-  }, [editing, id]);
-
-  useEffect(() => {
-    if (!form.stationId || !form.date) {
-      setScheduleRaw(null);
-      setSlots([]);
-      return;
+      } catch (e) {
+        console.error(e);
+        toast.error("Failed to load form data");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
     }
-    setLoadingSchedule(true);
-    getSchedule(form.stationId, form.date)
-      .then((sch) => {
-        setScheduleRaw(sch ?? null);
-        const s = extractSlots(sch ?? null);
-        setSlots(s);
-        setManual(s.length === 0);
-      })
-      .catch(() => {
-        setScheduleRaw(null);
-        setSlots([]);
-        setManual(true);
-      })
-      .finally(() => setLoadingSchedule(false));
-  }, [form.stationId, form.date]);
+    init();
+    return () => {
+      cancelled = true;
+    };
+  }, [id, isEdit]);
 
-  const onPickSlot = (s) => {
-    if (!s?.start || !s?.end) return;
-    setForm((f) => ({ ...f, start: s.start, end: s.end }));
-  };
+  /* ---------- schedule load ---------- */
+  useEffect(() => {
+    let cancelled = false;
+    async function loadSchedule() {
+      try {
+        if (!stationId || !date) {
+          setSchedule(null);
+          return;
+        }
+        const { data } = await api.get("/schedules", {
+          params: { stationId, date },
+        });
+        if (!cancelled) setSchedule((data || [])[0] || null);
+      } catch (e) {
+        console.error(e);
+        if (!cancelled) setSchedule(null);
+      }
+    }
+    loadSchedule();
+    return () => {
+      cancelled = true;
+    };
+  }, [stationId, date]);
 
-  /* --------- submit --------- */
-  const save = async (e) => {
+  /* ---------- conflicts ---------- */
+  useEffect(() => {
+    let cancelled = false;
+    async function loadConflicts() {
+      try {
+        if (!stationId || !date) {
+          setConflicts([]);
+          return;
+        }
+        const data = await listBookingsByStationDate(stationId, date);
+        if (!cancelled) setConflicts(data || []);
+      } catch {
+        if (!cancelled) setConflicts([]);
+      }
+    }
+    loadConflicts();
+    return () => {
+      cancelled = true;
+    };
+  }, [stationId, date]);
+
+  const validSlots = useMemo(() => {
+    if (!schedule) return [];
+    return (schedule.slots || [])
+      .filter((s) => !!toHHMMSS(s?.start) && !!toHHMMSS(s?.end))
+      .map((s, i) => ({
+        key: slotKey(s, i),
+        start: toHHMMSS(s.start),
+        end: toHHMMSS(s.end),
+        label: slotLabel(s),
+      }));
+  }, [schedule]);
+
+  /* ---------- date window ---------- */
+  const minDate = todayISO();
+  const maxDate = addDaysISO(new Date(), 7);
+
+  /* ---------- submit ---------- */
+  async function submit(e) {
     e.preventDefault();
-
-    if (!editing && !form.nic.trim()) return toast.error("NIC is required");
-    if (!form.stationId) return toast.error("Select a station");
-    if (!form.date) return toast.error("Select a date");
-    if (!form.start || !form.end) return toast.error("Pick a slot");
-
     try {
-      if (editing) {
-        await updateBooking(id, {
-          date: form.date,
-          start: toHmss(form.start),
-          end: toHmss(form.end),
-        });
+      setSaving(true);
+      if (!stationId || !nic || !date || !slot) {
+        toast.error("Please fill all fields");
+        return;
+      }
+      const [start, end] = slot.split("|");
+      if (isEdit) {
+        await updateBooking(id, { date, start, end });
         toast.success("Booking updated");
-        nav(`/app/bookings?stationId=${encodeURIComponent(form.stationId)}&date=${encodeURIComponent(form.date)}`);
+        nav("/app/bookings");
       } else {
-        const created = await createBooking({
-          nic: form.nic.trim(),
-          stationId: form.stationId,
-          date: form.date,
-          start: toHmss(form.start),
-          end: toHmss(form.end),
-        });
-        // show pretty booking id on success
-        const pretty = prettyId("BOOKING", created?.id);
-        toast.success(`Created ${pretty}`);
-        nav(`/app/bookings?stationId=${encodeURIComponent(form.stationId)}&date=${encodeURIComponent(form.date)}`);
+        await createBooking({ nic, stationId, date, start, end });
+        toast.success("Booking created");
+        nav("/app/bookings");
       }
     } catch (err) {
-      const msg = err?.response?.data?.error || "Booking failed";
+      const msg = err?.response?.data?.error || err?.message || "Save failed";
       toast.error(msg);
-      console.error(err);
+    } finally {
+      setSaving(false);
     }
-  };
+  }
+
+  if (loading)
+    return <div className="py-20 text-center text-slate-500">Loading…</div>;
 
   return (
-    <form onSubmit={save} className="max-w-2xl space-y-4">
-      <h1 className="text-xl font-semibold">{editing ? "Edit Booking" : "New Booking"}</h1>
-
-      {!editing && (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
         <div>
-          <label className="text-sm text-slate-600">Owner NIC</label>
-          <input
-            className="border rounded px-3 py-2 w-full"
-            placeholder="923456789V"
-            value={form.nic}
-            onChange={(e) => setForm({ ...form, nic: e.target.value })}
-          />
-        </div>
-      )}
-
-      <div className="grid sm:grid-cols-2 gap-3">
-        <div>
-          <label className="text-sm text-slate-600">Station</label>
-          <select
-            className="border rounded px-3 py-2 w-full"
-            value={form.stationId}
-            onChange={(e) => setForm({ ...form, stationId: e.target.value, start: "", end: "" })}
-            disabled={editing}
-          >
-            <option value="">Select a station…</option>
-            {stations.map((s) => (
-              <option key={s.id} value={s.id}>
-                {/* show pretty station id in dropdown */}
-                {prettyId("STATION", s.id)} — {s.name} ({s.type})
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div>
-          <label className="text-sm text-slate-600">Date</label>
-          <input
-            type="date"
-            className="border rounded px-3 py-2 w-full"
-            value={form.date}
-            min={minDate}
-            max={maxDate}
-            onChange={(e) => setForm({ ...form, date: e.target.value, start: "", end: "" })}
-          />
-          <p className="text-xs text-slate-500 mt-1">Bookings allowed only within the next 7 days.</p>
+          <div className="text-xs text-slate-500">Management</div>
+          <div className="text-2xl font-semibold">
+            {isEdit ? "Edit Booking" : "New Booking"}
+          </div>
         </div>
       </div>
 
-      {/* Slots / Manual */}
-      <div className="rounded-xl border bg-white p-4">
-        <div className="flex items-center justify-between">
-          <div className="text-sm font-medium">Available slots</div>
-          <label className="text-xs flex items-center gap-2">
-            <input type="checkbox" checked={manual} onChange={(e) => setManual(e.target.checked)} />
-            Manual time entry
-          </label>
-        </div>
-
-        {loadingSchedule ? (
-          <div className="text-slate-500 text-sm mt-2">Loading schedule…</div>
-        ) : manual ? (
-          <div className="grid grid-cols-2 gap-3 mt-3">
-            <div>
-              <label className="text-sm text-slate-600">Start (HH:mm)</label>
+      {/* Form */}
+      <form onSubmit={submit} className="bg-white border rounded-xl p-5 shadow-sm space-y-4">
+        {!isEdit && (
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="flex flex-col">
+              <label className="text-xs text-slate-500 mb-1">Owner NIC</label>
               <input
-                type="time"
-                className="border rounded px-3 py-2 w-full"
-                value={form.start}
-                onChange={(e) => setForm({ ...form, start: e.target.value })}
+                className="border rounded-lg px-3 py-2"
+                value={nic}
+                onChange={(e) => setNic(e.target.value)}
+                placeholder="e.g. 200012345678"
               />
             </div>
-            <div>
-              <label className="text-sm text-slate-600">End (HH:mm)</label>
-              <input
-                type="time"
-                className="border rounded px-3 py-2 w-full"
-                value={form.end}
-                onChange={(e) => setForm({ ...form, end: e.target.value })}
-              />
+            <div className="flex flex-col">
+              <label className="text-xs text-slate-500 mb-1">Station</label>
+              <select
+                className="border rounded-lg px-3 py-2"
+                value={stationId}
+                onChange={(e) => setStationId(e.target.value)}
+              >
+                {stations.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                  </option>
+                ))}
+              </select>
             </div>
-            <p className="text-xs text-slate-500 col-span-2">
-              Use manual entry if slots don’t appear (backend schedule shape can vary).
-            </p>
-          </div>
-        ) : slots.length === 0 ? (
-          <div className="text-rose-600 text-sm mt-2">No schedule published or no slots for this day.</div>
-        ) : (
-          <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-2 mt-3">
-            {slots.map((slot, i) => {
-              const selected = form.start === slot.start && form.end === slot.end;
-              const disabled = slot.available === false || (slot.capacity ?? 0) <= 0;
-              return (
-                <button
-                  key={i}
-                  type="button"
-                  onClick={() => !disabled && onPickSlot(slot)}
-                  disabled={disabled}
-                  className={`px-3 py-2 rounded border text-sm ${
-                    selected
-                      ? "bg-blue-600 text-white border-blue-600"
-                      : disabled
-                      ? "bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed"
-                      : "hover:bg-slate-50"
-                  }`}
-                >
-                  {slot.start} – {slot.end} {slot.capacity != null ? `· cap ${slot.capacity}` : ""}
-                </button>
-              );
-            })}
           </div>
         )}
 
-        <div className="mt-3 text-sm text-slate-700">
-          Selected:{" "}
-          {form.start && form.end ? (
-            <b>
-              {form.date} {form.start}–{form.end}
-            </b>
-          ) : (
-            <span className="text-slate-500">none</span>
-          )}
-        </div>
-      </div>
+        {isEdit && (
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="flex flex-col">
+              <label className="text-xs text-slate-500 mb-1">Owner NIC</label>
+              <input className="border rounded-lg px-3 py-2 bg-slate-50" value={nic} disabled />
+            </div>
+            <div className="flex flex-col">
+              <label className="text-xs text-slate-500 mb-1">Station</label>
+              <input
+                className="border rounded-lg px-3 py-2 bg-slate-50"
+                value={stations.find((s) => s.id === stationId)?.name || stationId}
+                disabled
+              />
+            </div>
+          </div>
+        )}
 
-      <div className="flex gap-2">
-        <button className="bg-blue-600 text-white px-4 py-2 rounded">Save</button>
-        <button type="button" className="border px-4 py-2 rounded" onClick={() => nav("/app/bookings")}>
-          Cancel
-        </button>
-      </div>
-    </form>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="flex flex-col">
+            <label className="text-xs text-slate-500 mb-1">Date</label>
+            <input
+              type="date"
+              className="border rounded-lg px-3 py-2"
+              value={date}
+              min={minDate}
+              max={maxDate}
+              onChange={(e) => setDate(e.target.value)}
+            />
+            <div className="text-xs text-slate-500 mt-1">
+              Bookings allowed only within 7 days from today.
+            </div>
+          </div>
+
+          <div className="flex flex-col">
+            <label className="text-xs text-slate-500 mb-1">Time Slot</label>
+            <select
+              className="border rounded-lg px-3 py-2"
+              value={slot}
+              onChange={(e) => setSlot(e.target.value)}
+            >
+              <option value="">Select a slot</option>
+              {validSlots.map((s) => (
+                <option key={s.key} value={`${s.start}|${s.end}`}>
+                  {s.label}
+                </option>
+              ))}
+            </select>
+            <div className="text-xs text-slate-500 mt-1">
+              Slots come from the station’s schedule for that date.
+            </div>
+          </div>
+        </div>
+
+        {!!conflicts.length && (
+          <div className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+            ⚠ {conflicts.length} existing booking(s) on this day. Capacity enforced by backend.
+          </div>
+        )}
+
+        <div className="pt-2 flex gap-3">
+          <button
+            disabled={saving}
+            className="bg-blue-600 text-white rounded-lg px-4 py-2 hover:bg-blue-700 disabled:opacity-50"
+          >
+            {isEdit ? "Save Changes" : "Create Booking"}
+          </button>
+          <button
+            type="button"
+            onClick={() => nav("/app/bookings")}
+            className="border rounded-lg px-4 py-2 hover:bg-slate-50"
+          >
+            Cancel
+          </button>
+        </div>
+      </form>
+    </div>
   );
 }
