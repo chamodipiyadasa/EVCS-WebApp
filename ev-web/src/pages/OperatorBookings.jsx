@@ -1,47 +1,69 @@
+// src/pages/OperatorBookings.jsx
 import { useEffect, useMemo, useState } from "react";
 import { listStations } from "../services/stations";
-import {
-  listBookingsByStationDate,
-  scanQr,
-  finalizeBooking,
-} from "../services/bookings";
+import { listBookingsByStationDate, scanQr, finalizeBooking } from "../services/bookings";
 import toast from "react-hot-toast";
 
 /* helpers */
 const two = (n) => String(n).padStart(2, "0");
 const todayStr = () => {
   const d = new Date();
-  return `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())}`;
+  return `${d.getFullYear()}-${two(d.getMonth()+1)}-${two(d.getDate())}`;
 };
-function fmtHM(x) {
-  if (!x) return "";
-  if (typeof x === "string") {
-    const m = x.match(/^(\d{2}:\d{2})/);
-    return m ? m[1] : x;
-  }
-  return x.toString?.() || "";
-}
+const fmtHM = (x) => (typeof x === "string" ? (x.match(/^(\d{2}:\d{2})/)?.[1] || x) : (x?.toString?.() || ""));
+
 function StatusBadge({ status }) {
   const map = {
-    Pending: "bg-amber-50 text-amber-700",
-    Approved: "bg-emerald-50 text-emerald-700",
-    Completed: "bg-slate-100 text-slate-700",
-    Canceled: "bg-rose-50 text-rose-700",
+    Pending: "bg-violet-100 text-violet-700",
+    Approved: "bg-emerald-100 text-emerald-700",
+    Completed: "bg-slate-200 text-slate-700",
+    Canceled: "bg-rose-100 text-rose-700",
   };
-  const cls = map[status] || "bg-slate-100 text-slate-700";
-  return <span className={`px-2.5 py-1 rounded-full text-xs ${cls}`}>{status}</span>;
+  return <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${map[status] || "bg-slate-100 text-slate-700"}`}>{status}</span>;
 }
+const Chip = ({ active, children, onClick }) => (
+  <button
+    onClick={onClick}
+    className={`px-3 py-1.5 rounded-lg border text-sm transition ${
+      active ? "bg-black text-white border-black" : "border-slate-300 text-slate-700 hover:bg-slate-50"
+    }`}
+  >
+    {children}
+  </button>
+);
+const Kpi = ({ label, value, tone }) => {
+  const toneCls =
+    tone === "emerald" ? "bg-emerald-50 text-emerald-700" :
+    tone === "violet"  ? "bg-violet-50 text-violet-700"  :
+    "bg-slate-100 text-slate-700";
+  return (
+    <div className="rounded-xl border p-3 text-center">
+      <div className="text-xs text-slate-500">{label}</div>
+      <div className={`mt-1 inline-block px-2 py-1 rounded font-semibold ${toneCls}`}>{value}</div>
+    </div>
+  );
+};
+const Th = ({ children, align = "left", className = "" }) => (
+  <th className={`px-4 py-3 text-${align} font-medium ${className}`}>{children}</th>
+);
+const Td = ({ children, align = "left", className = "" }) => (
+  <td className={`px-4 py-3 align-top text-${align} ${className}`}>{children}</td>
+);
 
 export default function OperatorBookings() {
   const [date, setDate] = useState(todayStr());
   const [station, setStation] = useState(null);
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
+
+  // QR modal
   const [qrOpen, setQrOpen] = useState(false);
   const [qrToken, setQrToken] = useState("");
   const [scanLoading, setScanLoading] = useState(false);
 
-  // load operator's station (for now: pick first station)
+  // status filter
+  const [statusFilter, setStatusFilter] = useState("All"); // All | Approved | Pending | Completed | Canceled
+
   useEffect(() => {
     (async () => {
       const s = await listStations().catch(() => []);
@@ -49,7 +71,6 @@ export default function OperatorBookings() {
     })();
   }, []);
 
-  // load bookings for station+date
   const load = async (sid, d) => {
     if (!sid || !d) return;
     setLoading(true);
@@ -77,14 +98,18 @@ export default function OperatorBookings() {
     return { all, approved, pending, completed };
   }, [items]);
 
+  const filtered = useMemo(() => {
+    if (statusFilter === "All") return items;
+    return items.filter((b) => b.status === statusFilter);
+  }, [items, statusFilter]);
+
   async function doScan() {
     if (!qrToken.trim()) return toast.error("Enter a QR token");
     setScanLoading(true);
     try {
       const res = await scanQr(qrToken.trim());
       toast.success(`QR verified • Booking ${res.bookingId}`);
-      setQrOpen(false);
-      setQrToken("");
+      setQrOpen(false); setQrToken("");
       if (station?.id) load(station.id, date);
     } catch (e) {
       console.error(e);
@@ -106,94 +131,81 @@ export default function OperatorBookings() {
   }
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-6">
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold">Operator • Bookings</h1>
-          <p className="text-slate-500 text-sm">
-            View and process bookings for your station.
-          </p>
+          <h1 className="text-2xl font-bold text-black">Operator • Bookings</h1>
+          <p className="text-slate-500 text-sm">View and process bookings for your station.</p>
         </div>
-        <div className="flex items-center gap-2">
-          <button
-            className="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700"
-            onClick={() => setQrOpen(true)}
-          >
-            Scan / Verify QR
-          </button>
-        </div>
+        <button onClick={() => setQrOpen(true)} className="px-4 py-2 rounded-lg bg-violet-600 text-white hover:bg-violet-700">
+          Scan / Verify QR
+        </button>
       </div>
 
       {/* Filters + KPIs */}
-      <div className="bg-white border rounded-xl p-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-        <div className="flex items-center gap-3">
-          <div>
-            <div className="text-xs text-slate-500">Station</div>
-            <div className="font-medium">
-              {station ? `${station.name} (${station.type})` : "—"}
+      <div className="bg-white border rounded-2xl p-4 shadow-sm space-y-3">
+        <div className="flex flex-wrap items-center gap-4 justify-between">
+          <div className="flex items-center gap-4">
+            <div>
+              <div className="text-xs text-slate-500">Station</div>
+              <div className="font-medium">{station ? `${station.name} (${station.type})` : "—"}</div>
+            </div>
+            <div className="w-px h-8 bg-slate-200" />
+            <div>
+              <div className="text-xs text-slate-500">Date</div>
+              <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="border rounded px-3 py-1.5" />
             </div>
           </div>
-          <div className="w-px h-8 bg-slate-200" />
-          <div>
-            <div className="text-xs text-slate-500">Date</div>
-            <input
-              type="date"
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
-              className="border rounded px-3 py-1.5"
-            />
+          <div className="grid grid-cols-4 gap-2 w-full md:w-auto">
+            <Kpi label="All" value={totals.all} />
+            <Kpi label="Approved" value={totals.approved} tone="emerald" />
+            <Kpi label="Pending" value={totals.pending} tone="violet" />
+            <Kpi label="Completed" value={totals.completed} />
           </div>
         </div>
 
-        <div className="grid grid-cols-4 gap-2 w-full md:w-auto">
-          <Kpi label="All" value={totals.all} />
-          <Kpi label="Approved" value={totals.approved} color="emerald" />
-          <Kpi label="Pending" value={totals.pending} color="amber" />
-          <Kpi label="Completed" value={totals.completed} />
+        {/* Status filter chips */}
+        <div className="flex flex-wrap gap-2">
+          {["All", "Approved", "Pending", "Completed", "Canceled"].map((s) => (
+            <Chip key={s} active={statusFilter === s} onClick={() => setStatusFilter(s)}>
+              {s}
+            </Chip>
+          ))}
         </div>
       </div>
 
       {/* Table */}
-      <div className="bg-white border rounded-xl overflow-hidden">
+      <section className="bg-white border rounded-2xl shadow-sm overflow-hidden">
+        <div className="px-5 py-3 flex items-center justify-between bg-black text-white">
+          <div className="font-semibold">Bookings</div>
+          <div className="text-xs opacity-80">{filtered.length} result{filtered.length !== 1 ? "s" : ""}</div>
+        </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
-            <thead className="bg-slate-50 text-slate-600">
+            <thead className="bg-white text-slate-700 border-b border-emerald-200">
               <tr>
                 <Th>Owner NIC</Th>
-                <Th>Time</Th>
-                <Th>Status</Th>
-                <Th className="text-right pr-4">Actions</Th>
+                <Th align="center">Time</Th>
+                <Th align="center">Status</Th>
+                <Th align="right" className="pr-4">Actions</Th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr>
-                  <td colSpan={4} className="py-10 text-center text-slate-500">
-                    Loading…
-                  </td>
-                </tr>
-              ) : items.length === 0 ? (
-                <tr>
-                  <td colSpan={4} className="py-14 text-center text-slate-500">
-                    No bookings found for this day.
-                  </td>
-                </tr>
+                <tr><td colSpan={4} className="py-10 text-center text-slate-500">Loading…</td></tr>
+              ) : filtered.length === 0 ? (
+                <tr><td colSpan={4} className="py-14 text-center text-slate-500">No bookings found.</td></tr>
               ) : (
-                items.map((b) => (
-                  <tr key={b.id} className="border-t">
-                    <Td className="font-medium">{b.nic}</Td>
-                    <Td>
-                      {fmtHM(b.start)} – {fmtHM(b.end)}
-                    </Td>
-                    <Td>
-                      <StatusBadge status={b.status} />
-                    </Td>
-                    <Td className="text-right pr-4">
+                filtered.map((b) => (
+                  <tr key={b.id} className="border-b border-emerald-100 hover:bg-emerald-50/40">
+                    <Td className="font-medium text-black">{b.nic}</Td>
+                    <Td align="center">{fmtHM(b.start)} – {fmtHM(b.end)}</Td>
+                    <Td align="center"><StatusBadge status={b.status} /></Td>
+                    <Td align="right" className="pr-4">
                       <div className="inline-flex items-center gap-2">
-                        {/* Operators DO NOT approve/create. They can scan + complete */}
                         <button
-                          className="px-3 py-1 rounded border hover:bg-slate-50"
+                          className="px-3 py-1 rounded-lg border border-violet-300 text-violet-700 hover:bg-violet-50"
                           onClick={() => setQrOpen(true)}
                           title="Scan / verify QR"
                         >
@@ -201,7 +213,7 @@ export default function OperatorBookings() {
                         </button>
                         {b.status === "Approved" && (
                           <button
-                            className="px-3 py-1 rounded bg-emerald-600 text-white hover:bg-emerald-700"
+                            className="px-3 py-1 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700"
                             onClick={() => complete(b.id)}
                             title="Mark as completed"
                           >
@@ -216,60 +228,39 @@ export default function OperatorBookings() {
             </tbody>
           </table>
         </div>
-      </div>
+      </section>
 
       {/* QR modal */}
       {qrOpen && (
-        <div className="fixed inset-0 bg-black/40 grid place-items-center z-50">
-          <div className="bg-white rounded-xl p-5 w-[420px] max-w-[92vw]">
-            <div className="text-lg font-semibold">Scan / Verify QR</div>
-            <p className="text-slate-600 text-sm mt-1">
-              Paste the QR token (or use a scanner to input) to verify a booking.
-            </p>
-            <input
-              className="border rounded px-3 py-2 w-full mt-3"
-              placeholder="QR token"
-              value={qrToken}
-              onChange={(e) => setQrToken(e.target.value)}
-            />
-            <div className="mt-4 flex items-center justify-end gap-2">
-              <button className="px-3 py-2 rounded border" onClick={() => setQrOpen(false)}>
-                Close
-              </button>
-              <button
-                className="px-3 py-2 rounded bg-blue-600 text-white hover:bg-blue-700"
-                onClick={doScan}
-                disabled={scanLoading}
-              >
-                {scanLoading ? "Verifying…" : "Verify"}
-              </button>
+        <div className="fixed inset-0 bg-black/40 z-50 grid place-items-center p-4">
+          <div className="bg-white rounded-2xl w-full max-w-md shadow-xl overflow-hidden">
+            <div className="px-5 py-3 bg-violet-600 text-white font-semibold">Scan / Verify QR</div>
+            <div className="p-5 space-y-3">
+              <p className="text-slate-600 text-sm">
+                Paste the QR token (or use a scanner to input) to verify a booking.
+              </p>
+              <input
+                className="border rounded-lg px-3 py-2 w-full"
+                placeholder="QR token"
+                value={qrToken}
+                onChange={(e) => setQrToken(e.target.value)}
+              />
+              <div className="pt-1 flex items-center justify-end gap-2">
+                <button className="px-3 py-2 rounded-lg border hover:bg-slate-50" onClick={() => setQrOpen(false)}>
+                  Close
+                </button>
+                <button
+                  className="px-3 py-2 rounded-lg bg-black text-white hover:bg-black/90"
+                  onClick={doScan}
+                  disabled={scanLoading}
+                >
+                  {scanLoading ? "Verifying…" : "Verify"}
+                </button>
+              </div>
             </div>
           </div>
         </div>
       )}
     </div>
   );
-}
-
-/* UI bits */
-function Kpi({ label, value, color }) {
-  const map = {
-    emerald: "bg-emerald-50 text-emerald-700",
-    amber: "bg-amber-50 text-amber-700",
-  };
-  const cls = map[color] || "bg-slate-100 text-slate-700";
-  return (
-    <div className="rounded-lg border p-3 text-center">
-      <div className="text-xs text-slate-500">{label}</div>
-      <div className={`mt-1 inline-block px-2 py-1 rounded ${cls} font-semibold`}>
-        {value}
-      </div>
-    </div>
-  );
-}
-function Th({ children, className = "" }) {
-  return <th className={`px-4 py-3 text-left font-medium ${className}`}>{children}</th>;
-}
-function Td({ children, className = "" }) {
-  return <td className={`px-4 py-3 align-top ${className}`}>{children}</td>;
 }

@@ -1,7 +1,7 @@
 // src/services/owners.js
 import api from "../api/client";
 
-/** Normalize a single owner object coming from API (case-insensitive fields) */
+/** Normalize a single owner object (case-insensitive from API) */
 function normOwner(o = {}) {
   return {
     nic: o.nic ?? o.Nic ?? "",
@@ -12,14 +12,13 @@ function normOwner(o = {}) {
   };
 }
 
-/** Normalize an array (or fallback to empty) */
+/** Normalize list */
 function normOwners(arr) {
   if (!Array.isArray(arr)) return [];
   return arr.map(normOwner);
 }
 
-/* -------------------- helpers -------------------- */
-
+/* -------------------- error helper -------------------- */
 function extractProblemDetails(err) {
   const pd = err?.response?.data;
   if (!pd) return { message: err?.message || "Request failed", fieldErrors: {} };
@@ -36,7 +35,10 @@ function extractProblemDetails(err) {
       const arr = Array.isArray(v) ? v : [v];
       fieldErrors[k] = arr.filter(Boolean).map(String);
     }
-    if (!pd.error && (!pd.title || /One or more validation errors/i.test(pd.title))) {
+    if (
+      !pd.error &&
+      (!pd.title || /One or more validation errors/i.test(pd.title))
+    ) {
       const first = Object.values(fieldErrors)[0];
       if (first?.length) message = first.join(" · ");
     }
@@ -47,7 +49,7 @@ function extractProblemDetails(err) {
 
 /* -------------------- CRUD -------------------- */
 
-// Get all EV owners
+// List owners
 export async function listOwners() {
   const { data } = await api.get("/owners", { params: { _t: Date.now() } });
   const owners = Array.isArray(data) ? data : data?.items ?? [];
@@ -61,34 +63,27 @@ export async function getOwner(nic) {
 }
 
 /**
- * Create new owner  → POST /api/Registration/owner
- * Backend expects a login for the owner, so we send:
- *  - Username (use NIC by default)
- *  - Password (from the form)
- * and the owner profile fields.
+ * Create new owner
+ * Backend controller: POST /api/owners
+ * DTO: CreateOwnerRequest { Nic, FullName, Email, Phone, Password }
  */
 export async function createOwner(req) {
   const nic = String(req.nic || "").trim();
   const fullName = String(req.fullName || "").trim();
   const email = String(req.email || "").trim();
   const phone = String(req.phone || "").trim();
-  const username = String(req.username || nic).trim();
-  const password = String(req.password || "").trim();
+  const password = String(req.password || "").trim(); // required by API model
 
   const payload = {
-    // owner profile (camel + Pascal just in case)
-    nic, Nic: nic,
-    fullName, FullName: fullName,
-    email, Email: email,
-    phone, Phone: phone,
-
-    // login data expected by backend Registration
-    username, Username: username,
-    password, Password: password,
+    Nic: nic,
+    FullName: fullName,
+    Email: email,
+    Phone: phone,
+    Password: password,
   };
 
   try {
-    const { data } = await api.post("/Registration/owner", payload, {
+    const { data } = await api.post("/owners", payload, {
       headers: { "Content-Type": "application/json" },
     });
     return normOwner(data);
@@ -101,16 +96,17 @@ export async function createOwner(req) {
   }
 }
 
-// Update owner details → PUT /owners/{nic}
+/**
+ * Update owner
+ * PUT /api/owners/{nic}
+ * DTO: UpdateOwnerRequest { FullName, Email, Phone, IsActive }
+ */
 export async function updateOwner(nic, req) {
-  const fullName = String(req.fullName || "").trim();
-  const email = String(req.email || "").trim();
-  const phone = String(req.phone || "").trim();
-
   const payload = {
-    fullName, FullName: fullName,
-    email, Email: email,
-    phone, Phone: phone,
+    FullName: String(req.fullName || "").trim(),
+    Email: String(req.email || "").trim(),
+    Phone: String(req.phone || "").trim(),
+    IsActive: typeof req.active === "boolean" ? req.active : !!req.IsActive,
   };
 
   try {
@@ -126,10 +122,36 @@ export async function updateOwner(nic, req) {
   }
 }
 
-// Deactivate / Reactivate
-export async function deactivateOwner(nic) {
-  await api.put(`/owners/${encodeURIComponent(nic)}/deactivate`);
+/* -------------------- Activate / Deactivate via Update -------------------- */
+
+/**
+ * Toggle active using the only supported endpoint (PUT /owners/{nic})
+ * We must send FullName/Email/Phone as well, so we fetch the current owner first.
+ */
+async function setOwnerActive(nic, active) {
+  const current = await getOwner(nic); // contains fullName, email, phone, active
+  await updateOwner(nic, {
+    fullName: current.fullName,
+    email: current.email,
+    phone: current.phone,
+    active: Boolean(active),
+  });
 }
+
+export async function deactivateOwner(nic) {
+  await setOwnerActive(nic, false);
+}
+
 export async function reactivateOwner(nic) {
-  await api.put(`/owners/${encodeURIComponent(nic)}/reactivate`);
+  await setOwnerActive(nic, true);
+}
+
+// Delete owner (if backend supports it). Falls back cleanly if 404.
+export async function deleteOwner(nic) {
+  try {
+    await api.delete(`/owners/${encodeURIComponent(nic)}`);
+  } catch (err) {
+    // bubble the original error so UI can show a friendly message
+    throw err;
+  }
 }

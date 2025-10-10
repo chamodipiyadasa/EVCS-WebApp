@@ -62,9 +62,33 @@ function Chip({ children, tone="slate" }) {
     slate: "bg-slate-100 text-slate-700",
     sky: "bg-sky-100 text-sky-700",
     violet: "bg-violet-100 text-violet-700",
+    emerald: "bg-emerald-100 text-emerald-700",
+    amber: "bg-amber-100 text-amber-700",
+    rose: "bg-rose-100 text-rose-700",
   };
   return <span className={`px-2 py-1 rounded text-xs ${tones[tone]}`}>{children}</span>;
 }
+
+const Btn = ({ variant = "solid", color = "emerald", className = "", ...props }) => {
+  const base = "px-3 py-2 rounded-lg text-sm font-medium transition";
+  const palettes = {
+    solid: {
+      emerald: "bg-emerald-600 hover:bg-emerald-700 text-white",
+      black: "bg-black hover:bg-black/90 text-white",
+      violet: "bg-violet-600 hover:bg-violet-700 text-white",
+      rose: "bg-rose-600 hover:bg-rose-700 text-white",
+      sky: "bg-sky-600 hover:bg-sky-700 text-white",
+      slate: "bg-slate-800 hover:bg-slate-900 text-white",
+      blue: "bg-blue-600 hover:bg-blue-700 text-white",
+    },
+    outline: {
+      slate: "border border-slate-300 text-slate-700 hover:bg-slate-50",
+      emerald: "border border-emerald-600 text-emerald-700 hover:bg-emerald-50",
+    },
+  };
+  const style = palettes[variant]?.[color] || palettes.solid.emerald;
+  return <button className={`${base} ${style} ${className}`} {...props} />;
+};
 
 /* ---------- main ---------- */
 export default function Bookings() {
@@ -81,6 +105,9 @@ export default function Bookings() {
   // Drawer (View) state
   const [openView, setOpenView] = useState(false);
   const [selected, setSelected] = useState(null);
+
+  // Status filter
+  const [statusFilter, setStatusFilter] = useState("All"); // All | Pending | Approved | Completed | Cancelled
 
   useEffect(() => {
     let cancelled = false;
@@ -125,13 +152,25 @@ export default function Bookings() {
     return map;
   }, [stations]);
 
+  const counts = useMemo(() => {
+    const base = { All: rows.length, Pending: 0, Approved: 0, Completed: 0, Cancelled: 0 };
+    for (const r of rows) {
+      if (base[r.status] != null) base[r.status] += 1;
+    }
+    return base;
+  }, [rows]);
+
+  const filteredRows = useMemo(() => {
+    if (statusFilter === "All") return rows;
+    return rows.filter(r => r.status === statusFilter);
+  }, [rows, statusFilter]);
+
   const doCancel = async (id) => {
     try {
       setLoadingAction(id);
       await cancelBooking(id);
       toast.success("Booking cancelled");
       await refresh();
-      // close view if we were viewing this one
       if (selected?.id === id) setOpenView(false);
     } catch (err) {
       const msg = err?.message || "Cancel failed";
@@ -166,63 +205,76 @@ export default function Bookings() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <div className="text-xs text-slate-500">Management</div>
-          <div className="text-2xl font-semibold">Bookings</div>
+          <div className="text-2xl font-bold text-black">Bookings</div>
         </div>
-        <button
-          onClick={() => nav("/app/bookings/new")}
-          className="bg-blue-600 text-white rounded-lg px-4 py-2 hover:bg-blue-700"
-        >
-          + New Booking
-        </button>
+        <Btn color="green" onClick={() => nav("/app/bookings/new")}>+ New Booking</Btn>
       </div>
 
       {/* Filters */}
-      <div className="bg-white border rounded-xl p-4 shadow-sm grid gap-3 sm:grid-cols-3">
-        <div className="flex flex-col">
-          <label className="text-xs text-slate-500 mb-1">Station</label>
-          <select
-            className="border rounded-lg px-3 py-2"
-            value={stationId}
-            onChange={(e) => setStationId(e.target.value)}
-          >
-            <option value="ALL">All stations</option>
-            {stations.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.name}
-              </option>
-            ))}
-          </select>
+      <div className="bg-white border rounded-2xl p-4 shadow-sm space-y-4">
+        <div className="grid gap-3 sm:grid-cols-3">
+          <div className="flex flex-col">
+            <label className="text-xs text-slate-500 mb-1">Station</label>
+            <select
+              className="border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              value={stationId}
+              onChange={(e) => setStationId(e.target.value)}
+            >
+              <option value="ALL">All stations</option>
+              {stations.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {prettyId("STATION", s.id)} — {s.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="flex flex-col">
+            <label className="text-xs text-slate-500 mb-1">Date</label>
+            <input
+              type="date"
+              className="border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+            />
+          </div>
+          <div className="flex items-end">
+            <Btn variant="outline" color="slate" className="w-full sm:w-auto" onClick={refresh}>
+              Refresh
+            </Btn>
+          </div>
         </div>
-        <div className="flex flex-col">
-          <label className="text-xs text-slate-500 mb-1">Date</label>
-          <input
-            type="date"
-            className="border rounded-lg px-3 py-2"
-            value={date}
-            onChange={(e) => setDate(e.target.value)}
-          />
-        </div>
-        <div className="flex items-end">
-          <button
-            className="border rounded-lg px-4 py-2 w-full sm:w-auto hover:bg-slate-50"
-            onClick={refresh}
-          >
-            Refresh
-          </button>
+
+        {/* Status tabs with counts */}
+        <div className="flex flex-wrap gap-2">
+          {["All", "Pending", "Approved", "Completed", "Cancelled"].map((s) => {
+            const active = statusFilter === s;
+            return (
+              <button
+                key={s}
+                onClick={() => setStatusFilter(s)}
+                className={
+                  "px-3 py-2 rounded-lg text-sm border transition " +
+                  (active
+                    ? "bg-emerald-600 text-white border-emerald-600"
+                    : "bg-white text-slate-700 hover:bg-slate-50 border-slate-200")
+                }
+              >
+                {s} <span className={active ? "text-emerald-50/90" : "text-slate-500"}>({counts[s] ?? 0})</span>
+              </button>
+            );
+          })}
         </div>
       </div>
 
       {/* Table */}
-      <div className="bg-white border rounded-xl shadow-sm overflow-x-auto">
+      <div className="bg-white border rounded-2xl shadow-sm overflow-x-auto">
         <div className="border-b px-5 py-3 text-sm text-slate-600">
-          {rows.length} result{rows.length !== 1 ? "s" : ""}
+          {filteredRows.length} result{filteredRows.length !== 1 ? "s" : ""}
         </div>
         {loading ? (
           <div className="py-10 text-center text-slate-500">Loading…</div>
-        ) : rows.length === 0 ? (
-          <div className="py-10 text-center text-slate-500">
-            No bookings found.
-          </div>
+        ) : filteredRows.length === 0 ? (
+          <div className="py-10 text-center text-slate-500">No bookings found.</div>
         ) : (
           <table className="w-full text-sm">
             <thead className="bg-slate-50 text-slate-600">
@@ -237,23 +289,22 @@ export default function Bookings() {
               </tr>
             </thead>
             <tbody>
-              {rows.map((b) => {
+              {filteredRows.map((b) => {
                 const st = stationMap[b.stationId];
+                const prettyBook = prettyId("BOOK", b.id);
+                const prettyStation = st ? prettyId("STATION", st.id) : "STATION—";
                 return (
-                  <tr key={b.id} className="border-t">
+                  <tr key={b.id} className="border-t hover:bg-slate-50/60">
                     <td className="px-4 py-2">
-                      <div className="text-xs text-slate-400">
-                        {prettyId("BOOK", b.id)}
-                      </div>
-                      <div className="font-medium">{b.id.slice(0, 10)}…</div>
+                      <div className="font-medium text-black">{prettyBook}</div>
                     </td>
                     <td className="px-4 py-2">
                       <span className="font-medium">{b.nic}</span>
                     </td>
                     <td className="px-4 py-2">
                       <div className="flex flex-col">
-                        <span className="font-medium">{st?.name || "—"}</span>
-                        <span className="text-xs text-slate-500">{b.stationId}</span>
+                        <span className="font-medium text-black">{prettyStation}</span>
+                        <span className="text-xs text-slate-500">{st?.name || "—"}</span>
                       </div>
                     </td>
                     <td className="px-4 py-2 text-center">
@@ -269,37 +320,32 @@ export default function Bookings() {
                     </td>
                     <td className="px-4 py-2">
                       <div className="flex gap-2 justify-end">
-                        <button
-                          onClick={() => openDetails(b)}
-                          className="px-3 py-1 border rounded-lg hover:bg-slate-50"
-                          title="View details"
-                        >
+                        <Btn variant="outline" color="slate" onClick={() => openDetails(b)} title="View details">
                           View
-                        </button>
+                        </Btn>
 
                         <Link
                           to={`/app/bookings/${b.id}`}
-                          className="px-3 py-1 border rounded-lg hover:bg-slate-50"
+                          className="px-3 py-2 rounded-lg border hover:bg-slate-50"
                           title="Edit"
                         >
                           Edit
                         </Link>
 
                         {b.status === "Pending" && (
-                          <button
-                            disabled={loadingAction === b.id}
+                          <Btn
                             onClick={() => doApprove(b.id)}
-                            className="px-3 py-1 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50"
+                            disabled={loadingAction === b.id}
                             title="Approve & Generate QR"
                           >
-                            Approve
-                          </button>
+                            {loadingAction === b.id ? "…" : "Approve"}
+                          </Btn>
                         )}
 
                         {b.status === "Approved" && (
                           <Link
                             to={`/app/bookings/${b.id}/qr`}
-                            className="px-3 py-1 rounded-lg bg-sky-600 text-white hover:bg-sky-700"
+                            className="px-3 py-2 rounded-lg bg-sky-600 text-white hover:bg-sky-700"
                             title="Show QR"
                           >
                             QR
@@ -307,14 +353,14 @@ export default function Bookings() {
                         )}
 
                         {b.status !== "Cancelled" && b.status !== "Completed" && (
-                          <button
-                            disabled={loadingAction === b.id}
+                          <Btn
+                            color="rose"
                             onClick={() => doCancel(b.id)}
-                            className="px-3 py-1 rounded-lg bg-rose-600 text-white hover:bg-rose-700 disabled:opacity-50"
+                            disabled={loadingAction === b.id}
                             title="Cancel"
                           >
-                            Cancel
-                          </button>
+                            {loadingAction === b.id ? "…" : "Cancel"}
+                          </Btn>
                         )}
                       </div>
                     </td>
@@ -326,7 +372,7 @@ export default function Bookings() {
         )}
       </div>
 
-      {/* ---------- View Drawer ---------- */}
+      {/* ---------- View Drawer (pretty IDs only) ---------- */}
       {openView && selected && (
         <div className="fixed inset-0 z-40" aria-modal="true" role="dialog">
           <div className="absolute inset-0 bg-black/30" onClick={() => setOpenView(false)} />
@@ -336,7 +382,7 @@ export default function Bookings() {
           >
             <div className="flex items-center justify-between">
               <div className="text-lg font-semibold">Booking Details</div>
-              <button onClick={() => setOpenView(false)} className="px-3 py-1 rounded border">
+              <button onClick={() => setOpenView(false)} className="px-3 py-1 rounded border hover:bg-slate-50">
                 Close
               </button>
             </div>
@@ -345,8 +391,7 @@ export default function Bookings() {
               <div className="grid grid-cols-3 gap-2">
                 <div className="text-slate-500">Booking</div>
                 <div className="col-span-2">
-                  <div className="text-xs text-slate-400">{prettyId("BOOK", selected.id)}</div>
-                  <div className="font-medium">{selected.id}</div>
+                  <div className="font-medium">{prettyId("BOOK", selected.id)}</div>
                 </div>
 
                 <div className="text-slate-500">Owner NIC</div>
@@ -354,8 +399,14 @@ export default function Bookings() {
 
                 <div className="text-slate-500">Station</div>
                 <div className="col-span-2">
-                  <div className="font-medium">{stationMap[selected.stationId]?.name || "—"}</div>
-                  <div className="text-xs text-slate-500">{selected.stationId}</div>
+                  <div className="font-medium">
+                    {stationMap[selected.stationId]
+                      ? prettyId("STATION", stationMap[selected.stationId].id)
+                      : "STATION—"}
+                  </div>
+                  <div className="text-xs text-slate-500">
+                    {stationMap[selected.stationId]?.name || "—"}
+                  </div>
                 </div>
 
                 <div className="text-slate-500">Date</div>
@@ -384,13 +435,12 @@ export default function Bookings() {
                   Edit
                 </Link>
                 {selected.status === "Pending" && (
-                  <button
-                    disabled={loadingAction === selected.id}
+                  <Btn
                     onClick={() => doApprove(selected.id)}
-                    className="px-3 py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50"
+                    disabled={loadingAction === selected.id}
                   >
-                    Approve
-                  </button>
+                    {loadingAction === selected.id ? "…" : "Approve"}
+                  </Btn>
                 )}
                 {selected.status === "Approved" && (
                   <Link
@@ -402,13 +452,13 @@ export default function Bookings() {
                   </Link>
                 )}
                 {selected.status !== "Cancelled" && selected.status !== "Completed" && (
-                  <button
-                    disabled={loadingAction === selected.id}
+                  <Btn
+                    color="rose"
                     onClick={() => doCancel(selected.id)}
-                    className="px-3 py-2 rounded-lg bg-rose-600 text-white hover:bg-rose-700 disabled:opacity-50"
+                    disabled={loadingAction === selected.id}
                   >
-                    Cancel
-                  </button>
+                    {loadingAction === selected.id ? "…" : "Cancel"}
+                  </Btn>
                 )}
               </div>
             </div>

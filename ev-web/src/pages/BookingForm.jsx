@@ -1,3 +1,4 @@
+// src/pages/BookingForm.jsx
 import { useEffect, useMemo, useState } from "react";
 import { listStations } from "../services/stations";
 import {
@@ -36,7 +37,27 @@ function slotLabel(slot) {
   const start = toHHMMSS(slot?.start);
   const end = toHHMMSS(slot?.end);
   if (!start || !end) return "Invalid slot";
-  return `${start} → ${end} (cap ${slot?.capacity ?? 1})`;
+  return `${start.slice(0,5)} → ${end.slice(0,5)} (cap ${slot?.capacity ?? 1})`;
+}
+
+// minutes helpers
+function toMinutes(t) {
+  if (!t) return 0;
+  if (typeof t === "object") {
+    const h = Number(t.hour ?? 0);
+    const m = Number(t.minute ?? 0);
+    const s = Number(t.second ?? 0);
+    return h * 60 + m + s / 60;
+  }
+  if (typeof t === "number") {
+    const ms = t > 86400000 ? t % 86400000 : t;
+    return Math.floor(ms / 60000);
+  }
+  const [h = "0", m = "0", s = "0"] = String(t).split(":");
+  return Number(h) * 60 + Number(m) + Number(s) / 60;
+}
+function overlaps(aStart, aEnd, bStart, bEnd) {
+  return aStart < bEnd && bStart < aEnd;
 }
 
 export default function BookingForm() {
@@ -48,7 +69,7 @@ export default function BookingForm() {
   const [stationId, setStationId] = useState("");
   const [nic, setNic] = useState("");
   const [date, setDate] = useState(todayISO());
-  const [slot, setSlot] = useState("");
+  const [slot, setSlot] = useState(""); // "HH:mm:ss|HH:mm:ss"
 
   const [schedule, setSchedule] = useState(null);
   const [conflicts, setConflicts] = useState([]);
@@ -102,9 +123,7 @@ export default function BookingForm() {
           setSchedule(null);
           return;
         }
-        const { data } = await api.get("/schedules", {
-          params: { stationId, date },
-        });
+        const { data } = await api.get("/schedules", { params: { stationId, date } });
         if (!cancelled) setSchedule((data || [])[0] || null);
       } catch (e) {
         console.error(e);
@@ -138,17 +157,54 @@ export default function BookingForm() {
     };
   }, [stationId, date]);
 
-  const validSlots = useMemo(() => {
+  /* ---------- build slot models with live availability ---------- */
+  const slotModels = useMemo(() => {
     if (!schedule) return [];
-    return (schedule.slots || [])
+    const slots = (schedule.slots || [])
       .filter((s) => !!toHHMMSS(s?.start) && !!toHHMMSS(s?.end))
-      .map((s, i) => ({
-        key: slotKey(s, i),
-        start: toHHMMSS(s.start),
-        end: toHHMMSS(s.end),
-        label: slotLabel(s),
-      }));
-  }, [schedule]);
+      .map((s, i) => {
+        const start = toHHMMSS(s.start);
+        const end = toHHMMSS(s.end);
+        const startM = toMinutes(start);
+        const endM = toMinutes(end);
+        const isMaint = s.available === false;
+
+        // bookings overlapping this window
+        const bookedCount = isMaint
+          ? 0
+          : (conflicts || []).reduce((acc, b) => {
+              const bs = toMinutes(b.start);
+              const be = toMinutes(b.end);
+              return acc + (overlaps(startM, endM, bs, be) ? 1 : 0);
+            }, 0);
+
+        const capacity = Math.max(0, Number(s.capacity || 0));
+        const left = isMaint ? 0 : Math.max(0, capacity - bookedCount);
+        const state = isMaint
+          ? "maintenance"
+          : capacity === 0
+          ? "blocked"
+          : left === 0
+          ? "full"
+          : left <= 1
+          ? "low"
+          : "ok";
+
+        return {
+          key: slotKey(s, i),
+          start,
+          end,
+          label: `${start.slice(0,5)} → ${end.slice(0,5)}`,
+          capacity,
+          bookedCount,
+          left,
+          state, // maintenance | blocked | full | low | ok
+        };
+      });
+
+    // sort earliest first
+    return slots.sort((a, b) => toMinutes(a.start) - toMinutes(b.start));
+  }, [schedule, conflicts]);
 
   /* ---------- date window ---------- */
   const minDate = todayISO();
@@ -190,20 +246,20 @@ export default function BookingForm() {
       <div className="flex items-center justify-between">
         <div>
           <div className="text-xs text-slate-500">Management</div>
-          <div className="text-2xl font-semibold">
+          <div className="text-2xl font-bold text-black">
             {isEdit ? "Edit Booking" : "New Booking"}
           </div>
         </div>
       </div>
 
       {/* Form */}
-      <form onSubmit={submit} className="bg-white border rounded-xl p-5 shadow-sm space-y-4">
+      <form onSubmit={submit} className="bg-white border rounded-2xl p-5 shadow-sm space-y-5">
         {!isEdit && (
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="flex flex-col">
               <label className="text-xs text-slate-500 mb-1">Owner NIC</label>
               <input
-                className="border rounded-lg px-3 py-2"
+                className="border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                 value={nic}
                 onChange={(e) => setNic(e.target.value)}
                 placeholder="e.g. 200012345678"
@@ -212,7 +268,7 @@ export default function BookingForm() {
             <div className="flex flex-col">
               <label className="text-xs text-slate-500 mb-1">Station</label>
               <select
-                className="border rounded-lg px-3 py-2"
+                className="border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                 value={stationId}
                 onChange={(e) => setStationId(e.target.value)}
               >
@@ -248,7 +304,7 @@ export default function BookingForm() {
             <label className="text-xs text-slate-500 mb-1">Date</label>
             <input
               type="date"
-              className="border rounded-lg px-3 py-2"
+              className="border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500"
               value={date}
               min={minDate}
               max={maxDate}
@@ -259,36 +315,112 @@ export default function BookingForm() {
             </div>
           </div>
 
+          {/* Slots Picker */}
           <div className="flex flex-col">
             <label className="text-xs text-slate-500 mb-1">Time Slot</label>
+
+            {/* Professional card grid for slots */}
+            {slotModels.length === 0 ? (
+              <div className="border rounded-lg px-3 py-2 text-sm text-slate-500 bg-slate-50">
+                No published windows for this date.
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {slotModels.map((s) => {
+                  const value = `${s.start}|${s.end}`;
+                  const active = slot === value;
+
+                  const stateStyles = {
+                    maintenance: "border-rose-300 bg-rose-50 text-rose-700",
+                    blocked: "border-slate-300 bg-slate-50 text-slate-500",
+                    full: "border-slate-300 bg-slate-50 text-slate-500",
+                    low: "border-amber-300 bg-amber-50 text-amber-800",
+                    ok: "border-emerald-300 bg-emerald-50 text-emerald-800",
+                  }[s.state];
+
+                  const cursor = s.state === "full" || s.state === "maintenance" || s.state === "blocked"
+                    ? "cursor-not-allowed opacity-70"
+                    : "cursor-pointer";
+
+                  return (
+                    <label
+                      key={s.key}
+                      className={`border rounded-xl p-3 flex items-start gap-3 ${stateStyles} ${cursor} ${active ? "ring-2 ring-emerald-500" : ""}`}
+                    >
+                      <input
+                        type="radio"
+                        name="slot"
+                        className="mt-0.5"
+                        value={value}
+                        disabled={s.state === "full" || s.state === "maintenance" || s.state === "blocked"}
+                        checked={active}
+                        onChange={() => setSlot(value)}
+                      />
+                      <div className="flex-1">
+                        <div className="font-medium">
+                          {s.label}
+                        </div>
+                        <div className="text-xs mt-0.5">
+                          Capacity <b>{s.capacity}</b> · Booked <b>{s.bookedCount}</b> · Left{" "}
+                          <b>{s.left}</b>
+                        </div>
+                        {s.state === "maintenance" && (
+                          <div className="text-xs mt-1">Maintenance window</div>
+                        )}
+                        {s.state === "full" && (
+                          <div className="text-xs mt-1">Fully booked</div>
+                        )}
+                        {s.state === "low" && (
+                          <div className="text-xs mt-1">Hurry—almost full</div>
+                        )}
+                      </div>
+                    </label>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Assistive select (fallback / keyboard users) */}
             <select
-              className="border rounded-lg px-3 py-2"
+              className="mt-2 border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
               value={slot}
               onChange={(e) => setSlot(e.target.value)}
             >
-              <option value="">Select a slot</option>
-              {validSlots.map((s) => (
-                <option key={s.key} value={`${s.start}|${s.end}`}>
-                  {s.label}
+              <option value="">Select a slot…</option>
+              {slotModels.map((s) => (
+                <option
+                  key={`opt-${s.key}`}
+                  value={`${s.start}|${s.end}`}
+                  disabled={s.state === "maintenance" || s.state === "full" || s.state === "blocked"}
+                >
+                  {s.label} — left {s.left}/{s.capacity}
                 </option>
               ))}
             </select>
+
             <div className="text-xs text-slate-500 mt-1">
-              Slots come from the station’s schedule for that date.
+              Slots are generated from the station’s schedule for the chosen date.
             </div>
           </div>
         </div>
 
+        {/* Friendly conflicts panel */}
         {!!conflicts.length && (
-          <div className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-            ⚠ {conflicts.length} existing booking(s) on this day. Capacity enforced by backend.
+          <div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3">
+            <div className="font-medium text-amber-900">
+              Heads up — {conflicts.length} booking{conflicts.length !== 1 ? "s" : ""} already exist for this day.
+            </div>
+            <div className="text-amber-800 text-sm mt-1">
+              Availability shown above already accounts for current bookings.
+              If a slot is marked <b>Fully booked</b> or <b>Maintenance</b>, please pick another window.
+            </div>
           </div>
         )}
 
         <div className="pt-2 flex gap-3">
           <button
             disabled={saving}
-            className="bg-blue-600 text-white rounded-lg px-4 py-2 hover:bg-blue-700 disabled:opacity-50"
+            className={`rounded-lg px-4 py-2 text-white ${saving ? "bg-emerald-300" : "bg-emerald-600 hover:bg-emerald-700"} disabled:opacity-50`}
           >
             {isEdit ? "Save Changes" : "Create Booking"}
           </button>

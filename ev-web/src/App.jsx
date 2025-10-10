@@ -14,6 +14,7 @@ import Users from './pages/Users'
 import Schedules from './pages/Schedules'
 import RequireRole from './auth/RequireRole'
 import { Toaster } from 'react-hot-toast'
+import UserForm from './pages/UserForm';
 
 // Operator pages
 import OperatorDashboard from './pages/OperatorDashboard'
@@ -92,6 +93,16 @@ export default function App() {
             element={
               <RequireRole roles={['Backoffice']}>
                 <Users />
+              </RequireRole>
+            }
+          />
+
+          {/* User edit (Backoffice only) */}
+          <Route
+            path="users/:username"
+            element={
+              <RequireRole roles={['Backoffice']}>
+                <UserForm />
               </RequireRole>
             }
           />

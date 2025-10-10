@@ -1,218 +1,195 @@
 // src/pages/OperatorDashboard.jsx
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { listStations } from "../services/stations";
 import { useAuth } from "../auth/useAuth";
+import { getSchedule, upsertSchedule } from "../services/schedules";
 import api from "../api/client";
 import toast from "react-hot-toast";
 
 /* ---------- helpers ---------- */
-function hashCode(str) {
-  let h = 0;
-  for (let i = 0; i < str.length; i++) {
-    h = (h << 5) - h + str.charCodeAt(i);
-    h |= 0;
-  }
-  return Math.abs(h);
-}
-function prettyId(prefix, raw, width = 3) {
-  if (!raw) return `${prefix}${"".padStart(width, "0")}`;
-  const n = (hashCode(String(raw)) % 1000) + 1;
-  return `${prefix}${String(n).padStart(width, "0")}`;
+const todayISO = () => new Date().toISOString().slice(0, 10);
+function hashCode(str){let h=0;for(let i=0;i<str.length;i++){h=(h<<5)-h+str.charCodeAt(i);h|=0;}return Math.abs(h)}
+function prettyId(prefix, raw, width=3){if(!raw)return `${prefix}${"".padStart(width,"0")}`;const n=(hashCode(String(raw))%1000)+1;return `${prefix}${String(n).padStart(width,"0")}`}
+const Pill=({tone="slate",children})=>{
+  const map={
+    emerald:"bg-emerald-100 text-emerald-700",
+    sky:"bg-sky-100 text-sky-700",
+    violet:"bg-violet-100 text-violet-700",
+    rose:"bg-rose-100 text-rose-700",
+    slate:"bg-slate-200 text-slate-600",
+    black:"bg-black text-white"
+  };
+  return <span className={`px-2 py-1 rounded-full text-xs font-medium ${map[tone]}`}>{children}</span>;
+};
+const StatusBadge=({status})=>{
+  const tone=status==="Approved"?"emerald":status==="Pending"?"violet":status==="Completed"?"sky":"rose";
+  return <Pill tone={tone}>{status}</Pill>;
+};
+// OSM iframe (no API key)
+function osmEmbedUrl(lat, lon, zoom=15){
+  const d=0.01;const bbox=`${lon-d},${lat-d},${lon+d},${lat+d}`;
+  return `https://www.openstreetmap.org/export/embed.html?bbox=${bbox}&layer=mapnik&marker=${lat}%2C${lon}#map=${zoom}/${lat}/${lon}`;
 }
 
-export default function OperatorDashboard() {
+/* ====================================================== */
+export default function OperatorDashboard(){
   const { user } = useAuth();
-  const [station, setStation] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [station,setStation]=useState(null);
+  const [loading,setLoading]=useState(true);
+  const [bookings,setBookings]=useState([]);
+  const [schedule,setSchedule]=useState(null);
+  const [toggling,setToggling]=useState(null);
 
-  const [bookings, setBookings] = useState([]);
-  const [schedules, setSchedules] = useState([]);
+  const today=todayISO();
+  const slots=useMemo(()=>schedule?.slots||[],[schedule]);
 
-  const today = new Date().toISOString().split("T")[0]; // YYYY-MM-DD
+  useEffect(()=>{(async()=>{
+    try{
+      setLoading(true);
+      const stations=await listStations();
+      if(!stations?.length){toast.error("No station assigned");return;}
+      const st=stations[0]; setStation(st);
+      const [bRes, sch]=await Promise.all([
+        api.get(`/bookings`,{params:{stationId:st.id,date:today}}),
+        getSchedule(st.id,today),
+      ]);
+      setBookings(bRes.data||[]);
+      setSchedule(sch||{stationId:st.id,date:today,slots:[]});
+    }catch(e){console.error(e);toast.error("Failed to load dashboard");}
+    finally{setLoading(false);}
+  })();},[user]);
 
-  useEffect(() => {
-    async function loadData() {
-      try {
-        setLoading(true);
+  async function toggleMaintenance(idx){
+    try{
+      setToggling(idx);
+      const next=slots.map((s,i)=> i===idx?{...s,available:s.available===false?true:false}:s);
+      await upsertSchedule({stationId:station.id,date:today,slots:next});
+      setSchedule(p=>({...p,slots:next}));
+      toast.success(next[idx].available===false?"Marked Maintenance":"Reopened");
+    }catch(e){console.error(e);toast.error(e?.response?.data?.error||e?.message||"Update failed");}
+    finally{setToggling(null);}
+  }
 
-        // Backend will return ONLY this operator’s stations (usually one)
-        const stations = await listStations();
-        if (!stations || stations.length === 0) {
-          toast.error("No station assigned");
-          setLoading(false);
-          return;
-        }
+  if(loading) return <div className="py-20 text-center text-slate-500">Loading…</div>;
+  if(!station) return <div className="py-20 text-center text-slate-500">No station assigned.</div>;
 
-        const st = stations[0];
-        setStation(st);
-
-        // parallel fetch: today's bookings and schedules
-        const [bRes, sRes] = await Promise.all([
-          api.get(`/bookings?stationId=${st.id}&date=${today}`),
-          api.get(`/schedules?stationId=${st.id}&date=${today}`)
-        ]);
-
-        setBookings(bRes.data || []);
-        setSchedules(sRes.data || []);
-
-      } catch (err) {
-        console.error(err);
-        toast.error("Failed to load dashboard data");
-      } finally {
-        setLoading(false);
-      }
-    }
-
-    loadData();
-  }, [user]);
-
-  if (loading)
-    return <div className="py-20 text-center text-slate-500">Loading...</div>;
-
-  if (!station)
-    return (
-      <div className="py-20 text-center text-slate-500">
-        No station assigned to this operator.
-      </div>
-    );
+  const hasCoords = Number.isFinite(+station.latitude) && Number.isFinite(+station.longitude);
+  const mapSrc = hasCoords ? osmEmbedUrl(+station.latitude,+station.longitude) : null;
 
   return (
-    <div className="space-y-6">
-      {/* Station Overview */}
-      <div className="bg-white border rounded-xl p-5 shadow-sm space-y-3">
-        <div className="flex items-center justify-between">
+    <div className="space-y-8">
+      {/* Station card */}
+      <div className="bg-white border rounded-2xl shadow-sm p-6 space-y-5">
+        <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <div className="text-xs text-slate-500">
-              {prettyId("STATION", station.id)}
+            <div className="text-xs text-slate-500">{prettyId("STATION",station.id)}</div>
+            <div className="text-2xl font-bold text-black">{station.name}</div>
+            <div className="text-slate-600">{station.address || "No address on file"}</div>
+            <div className="mt-2 flex flex-wrap gap-2">
+              <Pill tone={station.isActive?"emerald":"slate"}>{station.isActive?"Active":"Inactive"}</Pill>
+              <Pill tone="violet">{station.type}</Pill>
+              <Pill tone="black">{station.slots} slots</Pill>
             </div>
-            <div className="text-xl font-semibold">{station.name}</div>
-            <div className="text-slate-600 text-sm">{station.address}</div>
           </div>
-          <div className="flex items-center gap-2">
-            <span
-              className={`px-2 py-1 rounded-full text-xs ${
-                station.isActive
-                  ? "bg-emerald-100 text-emerald-700"
-                  : "bg-slate-200 text-slate-600"
-              }`}
-            >
-              {station.isActive ? "Active" : "Inactive"}
-            </span>
-            <span className="px-2 py-1 rounded-full text-xs bg-sky-100 text-sky-700">
-              {station.type}
-            </span>
-            <span className="px-2 py-1 rounded-full text-xs bg-violet-100 text-violet-700">
-              {station.slots} slots
-            </span>
+          <div className="w-full sm:w-[380px] rounded-xl overflow-hidden border">
+            {mapSrc ? (
+              <iframe title="Station map" src={mapSrc} className="w-full h-56" loading="lazy" />
+            ) : (
+              <div className="w-full h-56 grid place-items-center bg-slate-50 text-slate-500">Map unavailable</div>
+            )}
           </div>
-        </div>
-
-        <div className="grid sm:grid-cols-3 gap-3">
-          <Kpi title="Latitude" value={station.latitude} />
-          <Kpi title="Longitude" value={station.longitude} />
-          <Kpi
-            title="Status"
-            value={station.isActive ? "Active" : "Inactive"}
-          />
         </div>
       </div>
 
-      {/* Today's Schedule */}
-      <div className="bg-white border rounded-xl shadow-sm">
-        <div className="border-b px-5 py-3 font-semibold flex justify-between">
-          <span>Today's Schedule ({today})</span>
-          <span className="text-slate-500 text-sm">
-            {schedules.length} entries
-          </span>
-        </div>
-        {schedules.length === 0 ? (
-          <div className="py-10 text-center text-slate-500">
-            No schedules for today.
-          </div>
-        ) : (
-          <table className="w-full text-sm">
-            <thead className="bg-slate-50 text-slate-600">
-              <tr>
-                <th className="px-4 py-2 text-left">Time</th>
-                <th className="px-4 py-2 text-center">Capacity</th>
-                <th className="px-4 py-2 text-center">Available</th>
-              </tr>
-            </thead>
-            <tbody>
-              {schedules.map((s, i) =>
-                (s.slots || []).map((slot, j) => (
-                  <tr key={`${i}-${j}`} className="border-t">
-                    <td className="px-4 py-2">
-                      {slot.start} → {slot.end}
-                    </td>
-                    <td className="px-4 py-2 text-center">{slot.capacity}</td>
-                    <td className="px-4 py-2 text-center">
-                      {slot.available ? "✅" : "❌"}
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        )}
-      </div>
+      {/* Schedule table */}
+      <CardTable
+        title={`Today's Schedule (${today})`}
+        countLabel={`${slots.length} window${slots.length!==1?"s":""}`}
+        headerTone="black"
+        rows={slots.map((slot,i)=>{
+          const time=`${String(slot.start).slice(0,5)} → ${String(slot.end).slice(0,5)}`;
+          const maint=slot.available===false;
+          return (
+            <tr key={`${slot.start}-${slot.end}-${i}`} className="border-b border-emerald-100 hover:bg-emerald-50/40">
+              <TdLeft>{time}</TdLeft>
+              <TdCenter>{slot.capacity}</TdCenter>
+              <TdCenter>{maint ? <Pill tone="rose">Maintenance</Pill> : <Pill tone="emerald">Open</Pill>}</TdCenter>
+              <TdRight>
+                <button
+                  disabled={toggling===i}
+                  onClick={()=>toggleMaintenance(i)}
+                  className={`px-3 py-1.5 rounded-lg text-sm border transition
+                    ${maint ? "border-emerald-300 text-emerald-700 hover:bg-emerald-50"
+                            : "border-rose-300 text-rose-700 hover:bg-rose-50"}
+                    ${toggling===i?"opacity-60 cursor-not-allowed":""}
+                  `}
+                >
+                  {toggling===i ? "Saving…" : (maint ? "Reopen" : "Mark Maintenance")}
+                </button>
+              </TdRight>
+            </tr>
+          );
+        })}
+        head={[
+          <Th key="t" wide>Time</Th>,
+          <Th key="c" center>Capacity</Th>,
+          <Th key="s" center>State</Th>,
+          <Th key="a" right>Maintenance</Th>,
+        ]}
+      />
 
-      {/* Today's Bookings */}
-      <div className="bg-white border rounded-xl shadow-sm">
-        <div className="border-b px-5 py-3 font-semibold flex justify-between">
-          <span>Today's Bookings ({today})</span>
-          <span className="text-slate-500 text-sm">
-            {bookings.length} total
-          </span>
-        </div>
-        {bookings.length === 0 ? (
-          <div className="py-10 text-center text-slate-500">
-            No bookings for today.
-          </div>
-        ) : (
-          <table className="w-full text-sm">
-            <thead className="bg-slate-50 text-slate-600">
-              <tr>
-                <th className="px-4 py-2 text-left">NIC</th>
-                <th className="px-4 py-2 text-center">Time</th>
-                <th className="px-4 py-2 text-center">Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {bookings.map((b) => (
-                <tr key={b.id} className="border-t">
-                  <td className="px-4 py-2">{b.nic}</td>
-                  <td className="px-4 py-2 text-center">
-                    {b.start} → {b.end}
-                  </td>
-                  <td className="px-4 py-2 text-center">
-                    <span
-                      className={`px-2 py-1 rounded-full text-xs ${
-                        b.status === "Approved"
-                          ? "bg-emerald-100 text-emerald-700"
-                          : b.status === "Pending"
-                          ? "bg-amber-100 text-amber-700"
-                          : "bg-rose-100 text-rose-700"
-                      }`}
-                    >
-                      {b.status}
-                    </span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
+      {/* Bookings table */}
+      <CardTable
+        title={`Today's Bookings (${today})`}
+        countLabel={`${bookings.length} total`}
+        headerTone="black"
+        rows={bookings.map(b=>(
+          <tr key={b.id} className="border-b border-emerald-100 hover:bg-emerald-50/40">
+            <TdLeft className="font-medium text-black">{b.nic}</TdLeft>
+            <TdCenter>{String(b.start).slice(0,5)} → {String(b.end).slice(0,5)}</TdCenter>
+            <TdCenter><StatusBadge status={b.status} /></TdCenter>
+          </tr>
+        ))}
+        head={[
+          <Th key="o" wide>Owner NIC</Th>,
+          <Th key="t" center>Time</Th>,
+          <Th key="st" center>Status</Th>,
+        ]}
+      />
     </div>
   );
 }
 
-function Kpi({ title, value }) {
+/* ---------- compact table/card primitives with brand styling ---------- */
+function CardTable({ title, countLabel, head, rows, headerTone="black" }){
   return (
-    <div className="rounded-xl border bg-white p-4">
-      <div className="text-xs text-slate-500">{title}</div>
-      <div className="text-lg font-semibold mt-1">{String(value)}</div>
-    </div>
+    <section className="bg-white border rounded-2xl shadow-sm overflow-hidden">
+      <div className={`px-5 py-3 flex items-center justify-between ${headerTone==="black"?"bg-black text-white":"bg-slate-50 text-slate-700"}`}>
+        <div className="font-semibold">{title}</div>
+        <div className="text-xs opacity-80">{countLabel}</div>
+      </div>
+      {rows.length===0 ? (
+        <div className="py-10 text-center text-slate-500">No data.</div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-white text-slate-700 border-b border-emerald-200">
+              <tr>{head}</tr>
+            </thead>
+            <tbody className="bg-white">{rows}</tbody>
+          </table>
+        </div>
+      )}
+    </section>
   );
 }
+function Th({ children, center, right, wide }){
+  return (
+    <th className={`px-4 py-2 ${center?"text-center":right?"text-right":"text-left"} ${wide?"min-w-[180px]":""} font-medium`}>
+      {children}
+    </th>
+  );
+}
+function TdLeft({ children, className="" }){ return <td className={`px-4 py-2 text-left ${className}`}>{children}</td>; }
+function TdCenter({ children, className="" }){ return <td className={`px-4 py-2 text-center ${className}`}>{children}</td>; }
+function TdRight({ children, className="" }){ return <td className={`px-4 py-2 text-right ${className}`}>{children}</td>; }
