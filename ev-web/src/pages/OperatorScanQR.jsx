@@ -337,7 +337,7 @@ export default function OperatorScanQR() {
               <button
                 onClick={verifyManual}
                 disabled={busy}
-                className="px-3 py-2 rounded bg-blue-600 text-white hover:bg-blue-700"
+                className="px-3 py-2 rounded bg-purple-600 text-white hover:bg-blue-700"
               >
                 Verify
               </button>
