@@ -1,3 +1,4 @@
+// src/pages/Stations.jsx
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import {
@@ -9,16 +10,26 @@ import {
 import { useAuth } from "../auth/useAuth";
 import toast from "react-hot-toast";
 
+/* Leaflet */
+import { MapContainer, TileLayer, Marker, useMap } from "react-leaflet";
+import L from "leaflet";
+
+// Fix default marker assets
+const defaultIcon = new L.Icon({
+  iconUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
+  iconRetinaUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
+  shadowUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
+  iconSize: [25, 41],
+  iconAnchor: [12, 41],
+});
+L.Marker.prototype.options.icon = defaultIcon;
+
 /* ---------- helpers ---------- */
-function hashCode(str) {
-  let h = 0;
-  for (let i = 0; i < str.length; i++) { h = (h << 5) - h + str.charCodeAt(i); h |= 0; }
-  return Math.abs(h);
-}
+function hashCode(str) { let h = 0; for (let i = 0; i < str.length; i++) { h = (h << 5) - h + str.charCodeAt(i); h |= 0; } return Math.abs(h); }
 function prettyId(prefix, raw, width = 3) {
-  if (!raw) return `${prefix}${"".padStart(width, "0")}`;
+  if (!raw) return `${prefix}${"".padStart(width,"0")}`;
   const n = (hashCode(String(raw)) % 1000) + 1;
-  return `${prefix}${String(n).padStart(width, "0")}`;
+  return `${prefix}${String(n).padStart(width,"0")}`;
 }
 function initials(nameOrUser = "") {
   const s = String(nameOrUser).trim();
@@ -36,6 +47,21 @@ const RefreshIcon = ({ className = "w-3.5 h-3.5" }) => (
   <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor"><path strokeWidth="2" d="M20 11a8 8 0 10-1.78 5.03M20 11V5m0 6h-6"/></svg>
 );
 
+/* Force Leaflet to render immediately when the drawer becomes visible */
+function FocusMap({ lat, lng, zoom = 18, depsKey }) {
+  const map = useMap();
+  useEffect(() => {
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+    // 1) ensure container size is valid (drawer just opened)
+    setTimeout(() => map.invalidateSize(), 0);
+    // 2) jump right to the spot with a tight zoom
+    map.setView([lat, lng], zoom, { animate: false });
+    // 3) second invalidate after layout settles (avoids “need to jiggle zoom”)
+    setTimeout(() => map.invalidateSize(), 150);
+  }, [lat, lng, zoom, map, depsKey]);
+  return null;
+}
+
 /* ---------- component ---------- */
 export default function Stations() {
   const { role } = useAuth();
@@ -46,9 +72,9 @@ export default function Stations() {
   const [loading, setLoading] = useState(true);
 
   // operators state
-  const [opsMap, setOpsMap] = useState({});     // { stationId: [{username,isActive,role}] }
-  const [loadingOps, setLoadingOps] = useState({}); // { stationId: bool }
-  const [openOps, setOpenOps] = useState(() => new Set()); // expanded rows
+  const [opsMap, setOpsMap] = useState({});
+  const [loadingOps, setLoadingOps] = useState({});
+  const [openOps, setOpenOps] = useState(() => new Set());
 
   // View drawer
   const [openView, setOpenView] = useState(false);
@@ -187,7 +213,6 @@ export default function Stations() {
                 />
               </div>
 
-              {/* Collapsible operators panel */}
               {openOps.has(s.id) && (
                 <OperatorsPanel
                   loading={!!loadingOps[s.id]}
@@ -331,36 +356,41 @@ export default function Stations() {
                 <div className="text-slate-500">Slots</div>
                 <div className="col-span-2">{selected.slots}</div>
 
-                <div className="text-slate-500">Coordinates</div>
-                <div className="col-span-2">
-                  <div>Lat: {selected.latitude}</div>
-                  <div>Lng: {selected.longitude}</div>
-                </div>
-
                 <div className="text-slate-500">Status</div>
                 <div className="col-span-2">
                   <Badge color={selected.isActive ? "emerald" : "slate"} text={selected.isActive ? "Active" : "Inactive"} />
                 </div>
+              </div>
 
-                <div className="text-slate-500">Operators</div>
-                <div className="col-span-2">
-                  <div className="mb-2">
-                    <OperatorsToggle
-                      open={openOps.has(selected.id)}
-                      loading={!!loadingOps[selected.id]}
-                      count={(opsMap[selected.id] || []).length}
-                      onClick={() => toggleOps(selected.id)}
-                      onRefresh={() => loadOperatorsFor(selected.id)}
-                      size="sm"
+              {/* Map that centers IMMEDIATELY without user zooming */}
+              <div className="rounded-xl overflow-hidden border">
+                {Number.isFinite(+selected.latitude) && Number.isFinite(+selected.longitude) ? (
+                  <MapContainer
+                    key={selected.id} // ensure clean mount per station
+                    center={[+selected.latitude, +selected.longitude]}
+                    zoom={18}
+                    className="h-64 w-full"
+                    scrollWheelZoom
+                    zoomControl
+                  >
+                    <TileLayer
+                      url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                      attribution="&copy; OpenStreetMap contributors"
+                      maxZoom={19}
                     />
+                    <FocusMap
+                      lat={+selected.latitude}
+                      lng={+selected.longitude}
+                      zoom={18}
+                      depsKey={selected.id}
+                    />
+                    <Marker position={[+selected.latitude, +selected.longitude]} />
+                  </MapContainer>
+                ) : (
+                  <div className="h-64 grid place-items-center text-slate-500 bg-slate-50">
+                    Coordinates not available
                   </div>
-                  {openOps.has(selected.id) && (
-                    <OperatorsPanel
-                      loading={!!loadingOps[selected.id]}
-                      operators={opsMap[selected.id]}
-                    />
-                  )}
-                </div>
+                )}
               </div>
 
               <div className="pt-4 flex gap-2 justify-end">
@@ -399,7 +429,6 @@ export default function Stations() {
 }
 
 /* ---------- Friendly operators UI bits ---------- */
-
 function OperatorsToggle({ open, loading, count, onClick, onRefresh, size = "md" }) {
   const base = size === "sm" ? "px-2.5 py-1 text-xs" : "px-3 py-1.5 text-sm";
   return (
@@ -481,7 +510,6 @@ function Badge({ color = "slate", text }) {
     </span>
   );
 }
-
 function Kpi({ title, value }) {
   return (
     <div className="rounded-xl border bg-white p-4">
